@@ -70,9 +70,7 @@ namespace SnakeTail
                     _mruMenu.AddFile(file);
                 }
 
-                // 禁用注册表保存选项（现在使用 SQLite）
-                saveRecentFilesToRegistryToolStripMenuItem.Checked = false;
-                saveRecentFilesToRegistryToolStripMenuItem.Enabled = false;
+                // 现在使用 SQLite 存储，不再需要注册表选项
             }
             catch (Exception ex)
             {
@@ -88,7 +86,6 @@ namespace SnakeTail
                 {
                 }
 
-                saveRecentFilesToRegistryToolStripMenuItem.Checked = loadFromRegistry;
                 _mruMenu = new JWC.MruStripMenuInline(recentFilesToolStripMenuItem, recentFile1ToolStripMenuItem, new JWC.MruStripMenu.ClickedHandler(OnMruFile), _mruRegKey, loadFromRegistry, 10);
 
                 MessageBox.Show(this, "无法初始化 SQLite 数据库，将使用注册表存储最近文件。\n\n错误: " + ex.Message,
@@ -963,26 +960,6 @@ namespace SnakeTail
             }
         }
 
-        private void saveRecentFilesToRegistryToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            if (saveRecentFilesToRegistryToolStripMenuItem.Checked)
-            {
-                try
-                {
-                    Microsoft.Win32.RegistryKey regKey = Microsoft.Win32.Registry.CurrentUser;
-                    regKey.DeleteSubKey(_mruRegKey, false);
-                    saveRecentFilesToRegistryToolStripMenuItem.Checked = false;
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show(this, "Failed to remove list of recently used files from registry.\n\n" + ex.Message, "", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            }
-            else
-            {
-                saveRecentFilesToRegistryToolStripMenuItem.Checked = true;
-            }
-        }
 
         private void MainForm_FormClosing(object sender, FormClosingEventArgs e)
         {

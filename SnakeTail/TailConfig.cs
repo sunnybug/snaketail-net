@@ -1,13 +1,13 @@
-﻿#region License statement
+#region License statement
 /* SnakeTail is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, version 3 of the License.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
@@ -202,6 +202,13 @@ namespace SnakeTail
         [XmlArrayItem("ExternalTools")]
         public List<ExternalToolConfig> ExternalTools { get; set; }
 
+        // 快速关键字相关配置
+        public string QuickKeyword { get; set; }
+        public bool QuickHighlight { get; set; }
+        public string QuickHighlightColor { get; set; }   // ColorTranslator
+        public bool QuickFilter { get; set; }
+        public bool QuickInverse { get; set; }
+
         internal Font FormFont
         {
             get
@@ -235,20 +242,43 @@ namespace SnakeTail
         {
             get
             {
-                if (FileEncoding == Encoding.UTF8.ToString())
-                    return Encoding.UTF8;
-                else
-                if (FileEncoding == Encoding.ASCII.ToString())
+                if (string.IsNullOrEmpty(FileEncoding))
+                    return Encoding.Default;
+
+                // Check for UTF8 BOM (special handling)
+                if (FileEncoding.Contains("UTF8") && FileEncoding.Contains("BOM"))
+                    return new UTF8Encoding(true);
+                else if (FileEncoding == Encoding.UTF8.ToString() || FileEncoding.Contains("UTF8"))
+                {
+                    // Check if it's UTF8 with BOM by checking if the encoding has a preamble
+                    UTF8Encoding utf8 = new UTF8Encoding(true);
+                    if (FileEncoding == utf8.ToString() || FileEncoding.Contains("BOM"))
+                        return new UTF8Encoding(true);
+                    else
+                        return new UTF8Encoding(false);
+                }
+                else if (FileEncoding == Encoding.ASCII.ToString())
                     return Encoding.ASCII;
-                else
-                if (FileEncoding == Encoding.Unicode.ToString())
+                else if (FileEncoding == Encoding.Unicode.ToString())
                     return Encoding.Unicode;
                 else
                     return Encoding.Default;
             }
             set
             {
-                FileEncoding = value.ToString();
+                if (value is UTF8Encoding)
+                {
+                    UTF8Encoding utf8 = (UTF8Encoding)value;
+                    // Store with BOM indicator if it has BOM
+                    if (utf8.GetPreamble().Length > 0)
+                        FileEncoding = "UTF8 BOM";
+                    else
+                        FileEncoding = "UTF8";
+                }
+                else
+                {
+                    FileEncoding = value.ToString();
+                }
             }
         }
 
@@ -321,6 +351,24 @@ namespace SnakeTail
                     BookmarkBackColor = ColorTranslator.ToHtml(value.Value);
                 else
                     BookmarkBackColor = null;
+            }
+        }
+
+        internal Color? FormQuickHighlightColor
+        {
+            get
+            {
+                if (QuickHighlightColor != null)
+                    return ColorTranslator.FromHtml(QuickHighlightColor);
+                else
+                    return null;
+            }
+            set
+            {
+                if (value.HasValue)
+                    QuickHighlightColor = ColorTranslator.ToHtml(value.Value);
+                else
+                    QuickHighlightColor = null;
             }
         }
    }

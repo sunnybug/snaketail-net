@@ -1,13 +1,13 @@
-﻿#region License statement
+#region License statement
 /* SnakeTail is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, version 3 of the License.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
@@ -67,12 +67,36 @@ namespace SnakeTail
             if (_displayFileTab)
             {
                 _filePathEdt.Text = TailFileConfig.FilePath;
+                // Add event handler for file path changes to auto-detect encoding
+                _filePathEdt.TextChanged += _filePathEdt_TextChanged;
 
+                // Add encoding options with display names
                 _fileEncodingCmb.Items.Add(Encoding.Default);
-                _fileEncodingCmb.Items.Add(Encoding.UTF8);
+                _fileEncodingCmb.Items.Add(new UTF8Encoding(false)); // UTF8 without BOM
+                _fileEncodingCmb.Items.Add(new UTF8Encoding(true));  // UTF8 with BOM
                 _fileEncodingCmb.Items.Add(Encoding.ASCII);
                 _fileEncodingCmb.Items.Add(Encoding.Unicode);
-                _fileEncodingCmb.SelectedItem = TailFileConfig.EnumFileEncoding;
+
+                // Set display member to show friendly names
+                _fileEncodingCmb.DisplayMember = null;
+                _fileEncodingCmb.Format += FileEncodingCmb_Format;
+
+                // Auto-detect encoding if file exists
+                Encoding detectedEncoding = null;
+                if (!string.IsNullOrEmpty(TailFileConfig.FilePath) && System.IO.File.Exists(TailFileConfig.FilePath))
+                {
+                    detectedEncoding = EncodingHelper.DetectFileEncoding(TailFileConfig.FilePath);
+                }
+
+                // Use detected encoding if available, otherwise use saved encoding
+                Encoding selectedEncoding = detectedEncoding ?? TailFileConfig.EnumFileEncoding;
+                _fileEncodingCmb.SelectedItem = selectedEncoding;
+
+                // If encoding was auto-detected and different from saved, update the config
+                if (detectedEncoding != null && detectedEncoding != TailFileConfig.EnumFileEncoding)
+                {
+                    TailFileConfig.EnumFileEncoding = detectedEncoding;
+                }
 
                 _fileCacheSizeEdt.Text = TailFileConfig.FileCacheSize.ToString();
 
@@ -295,6 +319,58 @@ namespace SnakeTail
                 return;
 
             _filePathEdt.Text = fileDialog.FileName;
+            // Auto-detect encoding when file path changes
+            AutoDetectEncoding();
+        }
+
+        private void FileEncodingCmb_Format(object sender, ListControlConvertEventArgs e)
+        {
+            if (e.ListItem is Encoding)
+            {
+                e.Value = EncodingHelper.GetEncodingDisplayName((Encoding)e.ListItem);
+            }
+        }
+
+        private void _filePathEdt_TextChanged(object sender, EventArgs e)
+        {
+            // Auto-detect encoding when file path changes (with a small delay to avoid too frequent checks)
+            AutoDetectEncoding();
+        }
+
+        private void AutoDetectEncoding()
+        {
+            string filePath = _filePathEdt.Text;
+            if (!string.IsNullOrEmpty(filePath) && System.IO.File.Exists(filePath))
+            {
+                Encoding detectedEncoding = EncodingHelper.DetectFileEncoding(filePath);
+                if (detectedEncoding != null)
+                {
+                    // Try to find matching encoding in the combo box
+                    foreach (object item in _fileEncodingCmb.Items)
+                    {
+                        Encoding enc = item as Encoding;
+                        if (enc != null)
+                        {
+                            // Compare encodings
+                            if (enc is UTF8Encoding && detectedEncoding is UTF8Encoding)
+                            {
+                                UTF8Encoding encUtf8 = (UTF8Encoding)enc;
+                                UTF8Encoding detectedUtf8 = (UTF8Encoding)detectedEncoding;
+                                if (encUtf8.GetPreamble().Length == detectedUtf8.GetPreamble().Length)
+                                {
+                                    _fileEncodingCmb.SelectedItem = item;
+                                    return;
+                                }
+                            }
+                            else if (enc == detectedEncoding)
+                            {
+                                _fileEncodingCmb.SelectedItem = item;
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         private void _fileCheckPatternChk_CheckedChanged(object sender, EventArgs e)

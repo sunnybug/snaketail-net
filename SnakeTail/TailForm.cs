@@ -1,13 +1,13 @@
-﻿#region License statement
+#region License statement
 /* SnakeTail is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, version 3 of the License.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
@@ -102,10 +102,83 @@ namespace SnakeTail
         List<int> _bookmarks = new List<int>();
         ThreadPoolQueue _threadPoolQueue = null;
 
+        // 关键字过滤和高亮相关字段
+        string _quickKeyword = "";
+        bool _quickHighlight = false;
+        Color _quickHighlightColor = Color.Yellow;
+        bool _quickFilter = false;
+        bool _quickInverse = false;
+        Dictionary<int, int> _filteredIndexMap = new Dictionary<int, int>(); // 过滤后的虚拟索引到实际行号的映射
+        int _filteredVirtualListSize = 0;
+        int _originalVirtualListSize = 0; // 保存原始列表大小
+
+        private TailFileConfig _currentTailConfig = null;
+
         public TailForm()
         {
             InitializeComponent();
             Icon = Properties.Resources.LogIcon;
+            InitializeEncodingComboBox();
+            InitializeKeywordToolStrip();
+        }
+
+        private void InitializeKeywordToolStrip()
+        {
+            _highlightColorButton.BackColor = _quickHighlightColor;
+            _highlightColorButton.ForeColor = GetContrastColor(_quickHighlightColor);
+        }
+
+        private Color GetContrastColor(Color color)
+        {
+            // 计算对比色，用于文本显示
+            int brightness = (int)((color.R * 299 + color.G * 587 + color.B * 114) / 1000);
+            return brightness > 128 ? Color.Black : Color.White;
+        }
+
+        private void InitializeEncodingComboBox()
+        {
+            _encodingComboBox.Items.Clear();
+            _encodingComboBox.Items.Add(new EncodingComboBoxItem(Encoding.Default));
+            _encodingComboBox.Items.Add(new EncodingComboBoxItem(new UTF8Encoding(false))); // UTF8 without BOM
+            _encodingComboBox.Items.Add(new EncodingComboBoxItem(new UTF8Encoding(true)));  // UTF8 with BOM
+            _encodingComboBox.Items.Add(new EncodingComboBoxItem(Encoding.ASCII));
+            _encodingComboBox.Items.Add(new EncodingComboBoxItem(Encoding.Unicode));
+            _encodingComboBox.Visible = true;
+        }
+
+        private class EncodingComboBoxItem
+        {
+            public Encoding Encoding { get; private set; }
+
+            public EncodingComboBoxItem(Encoding encoding)
+            {
+                Encoding = encoding;
+            }
+
+            public override string ToString()
+            {
+                return EncodingHelper.GetEncodingDisplayName(Encoding);
+            }
+
+            public override bool Equals(object obj)
+            {
+                EncodingComboBoxItem other = obj as EncodingComboBoxItem;
+                if (other == null)
+                    return false;
+
+                if (Encoding is UTF8Encoding && other.Encoding is UTF8Encoding)
+                {
+                    UTF8Encoding enc1 = (UTF8Encoding)Encoding;
+                    UTF8Encoding enc2 = (UTF8Encoding)other.Encoding;
+                    return enc1.GetPreamble().Length == enc2.GetPreamble().Length;
+                }
+                return Encoding == other.Encoding;
+            }
+
+            public override int GetHashCode()
+            {
+                return Encoding.GetHashCode();
+            }
         }
 
         public bool Paused
@@ -136,6 +209,7 @@ namespace SnakeTail
         public void LoadConfig(TailFileConfig tailConfig, string configPath)
         {
             _configPath = configPath;
+            _currentTailConfig = tailConfig;
 
             try
             {
@@ -216,6 +290,24 @@ namespace SnakeTail
 
             Encoding fileEncoding = tailConfig.EnumFileEncoding;
 
+            // Auto-detect encoding if not explicitly set or if file exists
+            if (fileEncoding == Encoding.Default && !string.IsNullOrEmpty(tailConfig.FilePath))
+            {
+                string filePath = Path.Combine(configPath, tailConfig.FilePath);
+                if (File.Exists(filePath))
+                {
+                    Encoding detectedEncoding = EncodingHelper.DetectFileEncoding(filePath);
+                    if (detectedEncoding != null && detectedEncoding != Encoding.Default)
+                    {
+                        fileEncoding = detectedEncoding;
+                        tailConfig.EnumFileEncoding = detectedEncoding;
+                    }
+                }
+            }
+
+            // Update encoding combo box
+            UpdateEncodingComboBox(fileEncoding);
+
             if (_logTailStream != null)
                 _logTailStream.Reset();
 
@@ -258,6 +350,11 @@ namespace SnakeTail
                 // Add loading of cache while counting lines in file
                 int lineCount = _logFileCache.FillTailCache(_logTailStream);
                 _tailListView.VirtualListSize = lineCount;
+                _originalVirtualListSize = 0; // 重置原始大小
+                if (_quickFilter)
+                {
+                    ApplyKeywordFilter();
+                }
             }
             else
             {
@@ -302,6 +399,51 @@ namespace SnakeTail
             }
 
             UpdateFormTitle(true);
+
+            // 加载快速关键字配置
+            // 先设置字段值，避免触发事件时使用旧值
+            _quickKeyword = tailConfig.QuickKeyword ?? "";
+            _quickHighlight = tailConfig.QuickHighlight;
+            _quickFilter = tailConfig.QuickFilter;
+            _quickInverse = tailConfig.QuickInverse;
+
+            if (tailConfig.FormQuickHighlightColor.HasValue)
+            {
+                _quickHighlightColor = tailConfig.FormQuickHighlightColor.Value;
+            }
+
+            // 然后更新 UI 控件
+            if (_keywordTextBox != null)
+            {
+                _keywordTextBox.Text = _quickKeyword;
+            }
+            if (_highlightCheckBox != null)
+            {
+                _highlightCheckBox.Checked = _quickHighlight;
+            }
+            if (_filterCheckBox != null)
+            {
+                _filterCheckBox.Checked = _quickFilter;
+            }
+            if (_inverseCheckBox != null)
+            {
+                _inverseCheckBox.Checked = _quickInverse;
+            }
+            if (_highlightColorButton != null && tailConfig.FormQuickHighlightColor.HasValue)
+            {
+                _highlightColorButton.BackColor = _quickHighlightColor;
+                _highlightColorButton.ForeColor = GetContrastColor(_quickHighlightColor);
+            }
+
+            // 如果启用了过滤或高亮，应用它们
+            if (_quickFilter && !string.IsNullOrEmpty(_quickKeyword))
+            {
+                ApplyKeywordFilter();
+            }
+            else if (_quickHighlight && !string.IsNullOrEmpty(_quickKeyword))
+            {
+                _tailListView.Invalidate();
+            }
 
             if (Visible)
             {
@@ -505,6 +647,105 @@ namespace SnakeTail
             }
         }
 
+        private void UpdateEncodingComboBox(Encoding encoding)
+        {
+            if (encoding == null)
+                encoding = Encoding.Default;
+
+            _encodingComboBox.SelectedIndexChanged -= _encodingComboBox_SelectedIndexChanged;
+
+            // Find matching encoding in combo box
+            EncodingComboBoxItem targetItem = new EncodingComboBoxItem(encoding);
+            foreach (object item in _encodingComboBox.Items)
+            {
+                EncodingComboBoxItem comboItem = item as EncodingComboBoxItem;
+                if (comboItem != null && comboItem.Equals(targetItem))
+                {
+                    _encodingComboBox.SelectedItem = item;
+                    _encodingComboBox.SelectedIndexChanged += _encodingComboBox_SelectedIndexChanged;
+                    return;
+                }
+            }
+
+            // If not found, select default
+            _encodingComboBox.SelectedIndex = 0;
+            _encodingComboBox.SelectedIndexChanged += _encodingComboBox_SelectedIndexChanged;
+        }
+
+        private void _encodingComboBox_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (_encodingComboBox.SelectedItem == null || _currentTailConfig == null)
+                return;
+
+            EncodingComboBoxItem selectedItem = _encodingComboBox.SelectedItem as EncodingComboBoxItem;
+            if (selectedItem == null)
+                return;
+
+            Encoding newEncoding = selectedItem.Encoding;
+            if (newEncoding == null)
+                return;
+
+            // Check if encoding actually changed
+            Encoding currentEncoding = _currentTailConfig.EnumFileEncoding;
+            EncodingComboBoxItem currentItem = new EncodingComboBoxItem(currentEncoding);
+            if (selectedItem.Equals(currentItem))
+                return; // Same encoding
+
+            // Update config
+            _currentTailConfig.EnumFileEncoding = newEncoding;
+
+            // Reload file with new encoding
+            string filePath = _currentTailConfig.FilePath;
+            string configPath = _configPath;
+
+            // Dispose old streams
+            if (_logFileStream != null)
+            {
+                _logFileStream.Dispose();
+                _logFileStream = null;
+            }
+            if (_logTailStream != null)
+            {
+                _logTailStream.Dispose();
+                _logTailStream = null;
+            }
+
+            // Clear cache
+            if (_logFileCache != null)
+            {
+                _logFileCache.Reset();
+                _logFileCache = null;
+            }
+
+            // Reload with new encoding
+            _logFileStream = new LogFileStream(configPath, filePath, newEncoding, _currentTailConfig.FileCheckInterval, _currentTailConfig.FileCheckPattern);
+            _logTailStream = new LogFileStream(configPath, filePath, newEncoding, _currentTailConfig.FileCheckInterval, _currentTailConfig.FileCheckPattern);
+            _logTailStream.FileReloadedEvent += new EventHandler(_logTailStream_FileReloadedEvent);
+
+            // Recreate cache
+            _logFileCache = new LogFileCache(_currentTailConfig.FileCacheSize);
+            _logFileCache.LoadingFileEvent += new EventHandler(_logFileCache_LoadingFileEvent);
+            _logFileCache.FillCacheEvent += new EventHandler(_logFileCache_FillCacheEvent);
+
+            // Reload the view
+            _tailListView.Items.Clear();
+            _tailListView.VirtualListSize = 0;
+            _topIndexHack = true;
+            Application.DoEvents();
+
+            // Load file cache
+            int lineCount = _logFileCache.FillTailCache(_logTailStream);
+            _tailListView.VirtualListSize = lineCount;
+
+            // Scroll to bottom
+            if (_tailListView.Items.Count > 0)
+            {
+                _tailListView.TopItem = _tailListView.Items[_tailListView.Items.Count - 1];
+            }
+
+            SetStatusBar("Encoding changed to " + EncodingHelper.GetEncodingDisplayName(newEncoding));
+        }
+
         public void SaveConfig(TailFileConfig tailConfig)
         {
             tailConfig.FormFont = _tailListView.Font;
@@ -519,7 +760,23 @@ namespace SnakeTail
             tailConfig.ExternalTools = _externalTools;
 
             tailConfig.FileCacheSize = _logFileCache.Items.Count;
-            tailConfig.EnumFileEncoding = _logTailStream.FileEncoding;
+            // Save encoding from combo box if available, otherwise from stream
+            if (_encodingComboBox.SelectedItem != null)
+            {
+                EncodingComboBoxItem selectedItem = _encodingComboBox.SelectedItem as EncodingComboBoxItem;
+                if (selectedItem != null && selectedItem.Encoding != null)
+                {
+                    tailConfig.EnumFileEncoding = selectedItem.Encoding;
+                }
+                else
+                {
+                    tailConfig.EnumFileEncoding = _logTailStream.FileEncoding;
+                }
+            }
+            else
+            {
+                tailConfig.EnumFileEncoding = _logTailStream.FileEncoding;
+            }
             tailConfig.FilePath = _logTailStream.FilePath;
             tailConfig.FileCheckInterval = _logTailStream.FileCheckInterval;
             tailConfig.FileChangeCheckInterval = _tailTimer.Interval;
@@ -552,6 +809,13 @@ namespace SnakeTail
             }
 
             tailConfig.DisplayTabIcon = _displayTabIcon;
+
+            // 保存快速关键字配置
+            tailConfig.QuickKeyword = _quickKeyword;
+            tailConfig.QuickHighlight = _quickHighlight;
+            tailConfig.FormQuickHighlightColor = _quickHighlightColor;
+            tailConfig.QuickFilter = _quickFilter;
+            tailConfig.QuickInverse = _quickInverse;
         }
 
         public void CopySelectionToClipboard()
@@ -801,37 +1065,55 @@ namespace SnakeTail
 
         private void _tailListView_RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs e)
         {
-            e.Item = _logFileCache.LookupCache(e.ItemIndex);
+            int actualIndex = e.ItemIndex;
+
+            // 如果启用过滤，需要将虚拟索引映射到实际行号
+            if (_quickFilter && !string.IsNullOrEmpty(_quickKeyword))
+            {
+                if (!_filteredIndexMap.ContainsKey(e.ItemIndex))
+                {
+                    // 如果映射不存在，返回空项
+                    ListViewItem lvi = new ListViewItem();
+                    lvi.SubItems.Add("");
+                    lvi.Text = "";
+                    e.Item = lvi;
+                    return;
+                }
+                actualIndex = _filteredIndexMap[e.ItemIndex];
+            }
+
+            e.Item = _logFileCache.LookupCache(actualIndex);
             if (e.Item != null)
                 return;
 
-            if (_logFileCache.FillCache(_logFileStream, e.ItemIndex) != -1)
+            if (_logFileCache.FillCache(_logFileStream, actualIndex) != -1)
             {
-                e.Item = _logFileCache.LookupCache(e.ItemIndex);
+                e.Item = _logFileCache.LookupCache(actualIndex);
                 if (e.Item != null)
                     return;
             }
 
-            ListViewItem lvi = new ListViewItem();
-            lvi.SubItems.Add("");
+            ListViewItem lvi2 = new ListViewItem();
+            lvi2.SubItems.Add("");
 
             if (!_topIndexHack)
             {
                 _topIndexHack = true;
                 ListViewItem topItem = _tailListView.TopItem;
                 _topIndexHack = false;
-                if (topItem == null || e.ItemIndex < topItem.Index || e.ItemIndex > topItem.Index + 1000)
+                int topIndex = topItem != null ? topItem.Index : 0;
+                if (topItem == null || e.ItemIndex < topIndex || e.ItemIndex > topIndex + 1000)
                 {
                     // Ignore invalid requests outside the visible zone
-                    lvi.Text = "";
-                    e.Item = lvi;
+                    lvi2.Text = "";
+                    e.Item = lvi2;
                     return;
                 }
             }
 
-            lvi.Text = _logFileStream.ReadLine(e.ItemIndex + 1);      // assign the text to the item
-            _logFileCache.SetLastCacheMiss(e.ItemIndex, lvi);
-            e.Item = lvi;
+            lvi2.Text = _logFileStream.ReadLine(actualIndex + 1);      // assign the text to the item
+            _logFileCache.SetLastCacheMiss(actualIndex, lvi2);
+            e.Item = lvi2;
         }
 
         private void TailForm_Load(object sender, EventArgs e)
@@ -846,7 +1128,11 @@ namespace SnakeTail
             }
             else
             {
-                _statusStrip.Visible = false;
+                // 即使作为 MDI 子窗口，也保持状态栏可见以显示编码下拉框
+                _statusStrip.Visible = true;
+                // Fix issue where ListView scrollbar was hidden behind statusbar
+                this.Controls.Remove(_statusStrip);
+                this.Controls.Add(_statusStrip);
             }
 
             _tailTimer.Enabled = true;
@@ -902,18 +1188,32 @@ namespace SnakeTail
             }
             else
             {
-                TailKeywordConfig keyword = MatchesKeyword(e.Item.Text, false, true);
-                if (keyword != null)
+                // 快速关键字高亮（优先级高于配置的关键字）
+                if (_quickHighlight && !string.IsNullOrEmpty(_quickKeyword))
                 {
-                    if (keyword.FormBackColor.HasValue && keyword.FormTextColor.HasValue)
+                    if (MatchesQuickKeyword(e.Item.Text))
                     {
-                        backColor = keyword.FormBackColor.Value;
-                        textColor = keyword.FormTextColor.Value;
+                        backColor = _quickHighlightColor;
+                        textColor = GetContrastColor(_quickHighlightColor);
+                    }
+                }
+
+                // 配置的关键字高亮
+                if (!backColor.HasValue)
+                {
+                    TailKeywordConfig keyword = MatchesKeyword(e.Item.Text, false, true);
+                    if (keyword != null)
+                    {
+                        if (keyword.FormBackColor.HasValue && keyword.FormTextColor.HasValue)
+                        {
+                            backColor = keyword.FormBackColor.Value;
+                            textColor = keyword.FormTextColor.Value;
+                        }
                     }
                 }
             }
 
-            //toggle colors if the item is highlighted 
+            //toggle colors if the item is highlighted
             if (e.Item.Selected)
             {
                 if (backColor.HasValue || textColor.HasValue)
@@ -1019,6 +1319,99 @@ namespace SnakeTail
                 }
             }
             return matchKeyword;
+        }
+
+        private bool MatchesQuickKeyword(string line)
+        {
+            if (string.IsNullOrEmpty(_quickKeyword))
+                return false;
+
+            bool matches = false;
+            if (_quickInverse)
+            {
+                // 反向匹配：不包含关键字
+                matches = line.IndexOf(_quickKeyword, StringComparison.CurrentCultureIgnoreCase) == -1;
+            }
+            else
+            {
+                // 正向匹配：包含关键字
+                matches = line.IndexOf(_quickKeyword, StringComparison.CurrentCultureIgnoreCase) != -1;
+            }
+            return matches;
+        }
+
+        private void UpdateFilteredIndexMap()
+        {
+            _filteredIndexMap.Clear();
+            _filteredVirtualListSize = 0;
+
+            if (!_quickFilter || string.IsNullOrEmpty(_quickKeyword))
+            {
+                return;
+            }
+
+            // 保存原始大小（如果还没有保存）
+            if (_originalVirtualListSize == 0)
+            {
+                _originalVirtualListSize = _tailListView.VirtualListSize;
+            }
+
+            // 遍历所有行，找出匹配的行
+            int virtualIndex = 0;
+            int actualSize = _originalVirtualListSize > 0 ? _originalVirtualListSize : _tailListView.VirtualListSize;
+
+            for (int i = 0; i < actualSize; i++)
+            {
+                string lineText = null;
+                ListViewItem lvi = _logFileCache.LookupCache(i);
+                if (lvi != null)
+                {
+                    lineText = lvi.Text;
+                }
+                else
+                {
+                    // 如果缓存中没有，尝试读取
+                    try
+                    {
+                        lineText = _logFileStream.ReadLine(i + 1);
+                    }
+                    catch
+                    {
+                        lineText = "";
+                    }
+                }
+
+                if (lineText != null && MatchesQuickKeyword(lineText))
+                {
+                    _filteredIndexMap[virtualIndex] = i;
+                    virtualIndex++;
+                }
+            }
+
+            _filteredVirtualListSize = virtualIndex;
+        }
+
+        private void ApplyKeywordFilter()
+        {
+            if (_quickFilter && !string.IsNullOrEmpty(_quickKeyword))
+            {
+                UpdateFilteredIndexMap();
+                ListViewUtil.SetVirtualListSizeWithoutRefresh(_tailListView, _filteredVirtualListSize);
+                _tailListView.Invalidate();
+            }
+            else
+            {
+                // 取消过滤，恢复原始大小
+                if (_filteredIndexMap.Count > 0 || _originalVirtualListSize > 0)
+                {
+                    _filteredIndexMap.Clear();
+                    _filteredVirtualListSize = 0;
+                    int restoreSize = _originalVirtualListSize > 0 ? _originalVirtualListSize : _tailListView.VirtualListSize;
+                    ListViewUtil.SetVirtualListSizeWithoutRefresh(_tailListView, restoreSize);
+                    _originalVirtualListSize = 0;
+                    _tailListView.Invalidate();
+                }
+            }
         }
 
         private void _tailListView_KeyDown(object sender, KeyEventArgs e)
@@ -1181,12 +1574,27 @@ namespace SnakeTail
                 _logFileCache = new LogFileCache(_logFileCache.Items.Count);
                 _tailListView.TopItem = null;
                 _tailListView.VirtualListSize = lineCount;
+                _originalVirtualListSize = 0; // 重置原始大小
+                if (_quickFilter)
+                {
+                    ApplyKeywordFilter();
+                }
                 _tailListView.Invalidate();
             }
             else
             {
                 //_tailListView.VirtualListSize = linecount;
-                ListViewUtil.SetVirtualListSizeWithoutRefresh(_tailListView, lineCount);
+                if (!_quickFilter)
+                {
+                    _originalVirtualListSize = 0; // 重置原始大小
+                    ListViewUtil.SetVirtualListSizeWithoutRefresh(_tailListView, lineCount);
+                }
+                else
+                {
+                    // 如果启用过滤，更新原始大小并重新应用过滤
+                    _originalVirtualListSize = lineCount;
+                    ApplyKeywordFilter();
+                }
                 if (listAtBottom && _tailListView.VirtualListSize > 0)
                     _tailListView.EnsureVisible(_tailListView.VirtualListSize - 1);
             }
@@ -1750,6 +2158,60 @@ namespace SnakeTail
             TailFileConfig configFileOther = new TailFileConfig();
             SaveConfig(configFileOther);
             LoadConfig(configFileOther, _configPath);
+        }
+
+        private void _keywordTextBox_TextChanged(object sender, EventArgs e)
+        {
+            _quickKeyword = _keywordTextBox.Text;
+            if (_quickFilter)
+            {
+                ApplyKeywordFilter();
+            }
+            else if (_quickHighlight)
+            {
+                _tailListView.Invalidate();
+            }
+        }
+
+        private void _highlightCheckBox_Click(object sender, EventArgs e)
+        {
+            _quickHighlight = _highlightCheckBox.Checked;
+            _tailListView.Invalidate();
+        }
+
+        private void _highlightColorButton_Click(object sender, EventArgs e)
+        {
+            ColorDialog colorDlg = new ColorDialog();
+            colorDlg.Color = _quickHighlightColor;
+            if (colorDlg.ShowDialog(this) == DialogResult.OK)
+            {
+                _quickHighlightColor = colorDlg.Color;
+                _highlightColorButton.BackColor = _quickHighlightColor;
+                _highlightColorButton.ForeColor = GetContrastColor(_quickHighlightColor);
+                if (_quickHighlight)
+                {
+                    _tailListView.Invalidate();
+                }
+            }
+        }
+
+        private void _filterCheckBox_Click(object sender, EventArgs e)
+        {
+            _quickFilter = _filterCheckBox.Checked;
+            ApplyKeywordFilter();
+        }
+
+        private void _inverseCheckBox_Click(object sender, EventArgs e)
+        {
+            _quickInverse = _inverseCheckBox.Checked;
+            if (_quickFilter)
+            {
+                ApplyKeywordFilter();
+            }
+            else if (_quickHighlight)
+            {
+                _tailListView.Invalidate();
+            }
         }
     }
 

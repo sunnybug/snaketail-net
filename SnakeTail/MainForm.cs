@@ -1,13 +1,13 @@
-﻿#region License statement
+#region License statement
 /* SnakeTail is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, version 3 of the License.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
@@ -37,12 +37,13 @@ namespace SnakeTail
 
         private string _mruRegKey = "SOFTWARE\\SnakeNest.com\\SnakeTail\\MRU";
         private JWC.MruStripMenu _mruMenu;
+        private MruSqliteStorage _mruSqliteStorage;
 
         public MainForm()
         {
             InitializeComponent();
             Icon = Properties.Resources.SnakeIcon;
-            _trayIcon.Icon = Properties.Resources.SnakeIcon; 
+            _trayIcon.Icon = Properties.Resources.SnakeIcon;
             _instance = this;
 
             _MDITabControl.ImageList = new ImageList();
@@ -52,19 +53,47 @@ namespace SnakeTail
             _MDITabControl.ImageList.Images.Add(new Bitmap(Properties.Resources.GreenBulletIcon.ToBitmap()));
             _MDITabControl.ImageList.Images.Add(new Bitmap(Properties.Resources.YellowBulletIcon.ToBitmap()));
 
-            bool loadFromRegistry = false;
+            // 初始化 SQLite 存储
             try
             {
-                Microsoft.Win32.RegistryKey regKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(_mruRegKey);
-                if (regKey != null)
-                    loadFromRegistry = true;
-            }
-            catch
-            {
-            }
+                _mruSqliteStorage = new MruSqliteStorage(null);
 
-            saveRecentFilesToRegistryToolStripMenuItem.Checked = loadFromRegistry;
-            _mruMenu = new JWC.MruStripMenuInline(recentFilesToolStripMenuItem, recentFile1ToolStripMenuItem, new JWC.MruStripMenu.ClickedHandler(OnMruFile), _mruRegKey, loadFromRegistry, 10);
+                // 从 SQLite 加载最近文件
+                List<string> recentFiles = _mruSqliteStorage.GetRecentFiles(10);
+
+                // 创建 MRU 菜单（不使用注册表）
+                _mruMenu = new JWC.MruStripMenuInline(recentFilesToolStripMenuItem, recentFile1ToolStripMenuItem, new JWC.MruStripMenu.ClickedHandler(OnMruFile), null, false, 10);
+
+                // 将 SQLite 中的文件添加到菜单
+                foreach (string file in recentFiles)
+                {
+                    _mruMenu.AddFile(file);
+                }
+
+                // 禁用注册表保存选项（现在使用 SQLite）
+                saveRecentFilesToRegistryToolStripMenuItem.Checked = false;
+                saveRecentFilesToRegistryToolStripMenuItem.Enabled = false;
+            }
+            catch (Exception ex)
+            {
+                // 如果 SQLite 初始化失败，回退到注册表模式
+                bool loadFromRegistry = false;
+                try
+                {
+                    Microsoft.Win32.RegistryKey regKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(_mruRegKey);
+                    if (regKey != null)
+                        loadFromRegistry = true;
+                }
+                catch
+                {
+                }
+
+                saveRecentFilesToRegistryToolStripMenuItem.Checked = loadFromRegistry;
+                _mruMenu = new JWC.MruStripMenuInline(recentFilesToolStripMenuItem, recentFile1ToolStripMenuItem, new JWC.MruStripMenu.ClickedHandler(OnMruFile), _mruRegKey, loadFromRegistry, 10);
+
+                MessageBox.Show(this, "无法初始化 SQLite 数据库，将使用注册表存储最近文件。\n\n错误: " + ex.Message,
+                    "警告", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
         }
 
         private void UpdateTitle()
@@ -95,6 +124,22 @@ namespace SnakeTail
                         break;  // Stop attempting to open all arguements if the first two fails
                 }
             }
+            else
+            {
+                // 如果没有命令行参数，尝试自动加载上次保存的会话
+                try
+                {
+                    string defaultPath = GetDefaultConfigPath();
+                    if (!string.IsNullOrEmpty(defaultPath) && File.Exists(defaultPath))
+                    {
+                        LoadSession(defaultPath);
+                    }
+                }
+                catch
+                {
+                    // 忽略加载错误，继续正常启动
+                }
+            }
         }
 
         public void SetStatusBar(string text, int progressValue, int progressMax)
@@ -121,7 +166,7 @@ namespace SnakeTail
         {
             closeItemToolStripMenuItem.Enabled = this.ActiveMdiChild != null;
 
-            // If no any child form, hide tabControl 
+            // If no any child form, hide tabControl
             if (this.ActiveMdiChild == null)
             {
                 if (_MDITabControl.TabCount==0)
@@ -129,7 +174,7 @@ namespace SnakeTail
             }
             else
             {
-                // If child form is new and no has tabPage, create new tabPage 
+                // If child form is new and no has tabPage, create new tabPage
                 if (this.ActiveMdiChild.Tag == null)
                 {
                     // Add a tabPage to tabControl with child form caption
@@ -231,6 +276,10 @@ namespace SnakeTail
             {
                 MessageBox.Show(this, "The file '" + filename + "'cannot be opened and will be removed from the Recent list(s)", "", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 _mruMenu.RemoveFile(number);
+                if (_mruSqliteStorage != null)
+                {
+                    _mruSqliteStorage.RemoveFile(filename);
+                }
             }
         }
 
@@ -293,20 +342,38 @@ namespace SnakeTail
                 TailForm mdiForm = new TailForm();
                 TailFileConfig tailConfig = _defaultTailConfig;
                 tailConfig.FilePath = filename;
+                // Auto-detect encoding when opening a file
+                if (File.Exists(filename))
+                {
+                    Encoding detectedEncoding = EncodingHelper.DetectFileEncoding(filename);
+                    if (detectedEncoding != null)
+                    {
+                        tailConfig.EnumFileEncoding = detectedEncoding;
+                    }
+                }
                 mdiForm.LoadConfig(tailConfig, configPath);
                 if (mdiForm.IsDisposed)
                     continue;
 
                 try
                 {
+                    string fullPath = filename;
                     if (string.IsNullOrEmpty(configPath))
                     {
                         new DirectoryInfo(Path.GetDirectoryName(filename));
-                        _mruMenu.AddFile(filename);
                     }
                     else
                     {
-                        _mruMenu.AddFile(Path.Combine(configPath, filename));
+                        fullPath = Path.Combine(configPath, filename);
+                    }
+
+                    // 添加到菜单
+                    _mruMenu.AddFile(fullPath);
+
+                    // 保存到 SQLite（如果可用）
+                    if (_mruSqliteStorage != null)
+                    {
+                        _mruSqliteStorage.AddFile(fullPath);
                     }
                 }
                 catch
@@ -503,9 +570,21 @@ namespace SnakeTail
             SaveConfig(tailConfig, filepath);
 
             if (String.IsNullOrEmpty(_currenTailConfig))
+            {
                 _mruMenu.AddFile(filepath);
+                if (_mruSqliteStorage != null)
+                {
+                    _mruSqliteStorage.AddFile(filepath);
+                }
+            }
             else if (_currenTailConfig != filepath)
+            {
                 _mruMenu.RenameFile(_currenTailConfig, filepath);
+                if (_mruSqliteStorage != null)
+                {
+                    _mruSqliteStorage.RenameFile(_currenTailConfig, filepath);
+                }
+            }
 
             _currenTailConfig = filepath;
 
@@ -587,6 +666,10 @@ namespace SnakeTail
                 return false;
 
             _mruMenu.AddFile(filepath);
+            if (_mruSqliteStorage != null)
+            {
+                _mruSqliteStorage.AddFile(filepath);
+            }
 
             if (!tailConfig.MinimizedToTray)
             {
@@ -823,7 +906,7 @@ namespace SnakeTail
         {
             // Discovered a strange problem where the Windows Explorer would lock, eventhough I deferred the actual DragDrop operation using BeginInvoke().
             // The solution was to create a thread, that slept for 100 ms and then invoked the wanted method. If I removed the sleep from the new thread,
-            // then Windows Explorer would lock again. Very strange indeed. 
+            // then Windows Explorer would lock again. Very strange indeed.
             System.Threading.Thread.Sleep(100);
             this.BeginInvoke(new Action<string[]>(delegate(string[] filenames) { OpenFileSelection(filenames); }), new object[] { param });
         }
@@ -874,6 +957,10 @@ namespace SnakeTail
         private void clearListToolStripMenuItem_Click(object sender, EventArgs e)
         {
             _mruMenu.RemoveAll();
+            if (_mruSqliteStorage != null)
+            {
+                _mruSqliteStorage.ClearAll();
+            }
         }
 
         private void saveRecentFilesToRegistryToolStripMenuItem_Click(object sender, EventArgs e)
@@ -902,12 +989,78 @@ namespace SnakeTail
             try
             {
                 _instance = null;
-                if (saveRecentFilesToRegistryToolStripMenuItem.Checked)
-                    _mruMenu.SaveToRegistry();
+
+                // 自动保存当前会话到默认位置
+                try
+                {
+                    string defaultPath = GetDefaultConfigPath();
+                    if (string.IsNullOrEmpty(defaultPath))
+                    {
+                        defaultPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "\\SnakeTail\\";
+                        if (!Directory.Exists(defaultPath))
+                            Directory.CreateDirectory(defaultPath);
+                        defaultPath += "SnakeTail.xml";
+                    }
+
+                    // 只有在有打开的文件时才保存会话
+                    bool hasOpenFiles = false;
+                    foreach (Form childForm in Application.OpenForms)
+                    {
+                        ITailForm tailForm = childForm as ITailForm;
+                        if (tailForm != null)
+                        {
+                            hasOpenFiles = true;
+                            break;
+                        }
+                    }
+
+                    if (hasOpenFiles)
+                    {
+                        SaveSession(defaultPath);
+                    }
+                }
+                catch
+                {
+                    // 忽略保存会话的错误，不影响程序关闭
+                }
+
+                // 清理不存在的文件记录并释放 SQLite 资源
+                if (_mruSqliteStorage != null)
+                {
+                    try
+                    {
+                        _mruSqliteStorage.CleanupNonExistentFiles();
+                    }
+                    catch
+                    {
+                        // 忽略清理错误
+                    }
+
+                    try
+                    {
+                        _mruSqliteStorage.Dispose();
+                    }
+                    catch
+                    {
+                        // 忽略释放错误
+                    }
+                    finally
+                    {
+                        _mruSqliteStorage = null;
+                    }
+                }
             }
             catch(Exception ex)
             {
-                MessageBox.Show(this, "Failed to save list of recently used files to registry.\n\n" + ex.Message, "", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                // 使用 null 作为 owner，避免在窗口关闭时出现问题
+                try
+                {
+                    MessageBox.Show(null, "Failed to save list of recently used files.\n\n" + ex.Message, "", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                catch
+                {
+                    // 如果 MessageBox 也失败，则完全忽略
+                }
             }
         }
 
@@ -936,7 +1089,7 @@ namespace SnakeTail
                         if (tabPageCurrent != null)
                         {
                             return tabPageCurrent.Tag as TForm;
-                        }                                
+                        }
                     }
                 }
             }

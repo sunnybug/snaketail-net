@@ -158,7 +158,6 @@ namespace SnakeTail
             //
             this._statusStrip.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this._statusTextBar,
-            this._encodingComboBox,
             this._statusProgressBar});
             this._statusStrip.Location = new System.Drawing.Point(0, 257);
             this._statusStrip.Name = "_statusStrip";
@@ -402,7 +401,8 @@ namespace SnakeTail
             this._highlightCheckBox,
             this._highlightColorButton,
             this._filterCheckBox,
-            this._inverseCheckBox});
+            this._inverseCheckBox,
+            this._encodingComboBox});
             this._keywordToolStrip.Location = new System.Drawing.Point(0, 0);
             this._keywordToolStrip.Name = "_keywordToolStrip";
             this._keywordToolStrip.Size = new System.Drawing.Size(332, 25);
@@ -418,7 +418,7 @@ namespace SnakeTail
             // _keywordTextBox
             //
             this._keywordTextBox.Name = "_keywordTextBox";
-            this._keywordTextBox.Size = new System.Drawing.Size(150, 25);
+            this._keywordTextBox.Size = new System.Drawing.Size(400, 25);
             this._keywordTextBox.TextChanged += new System.EventHandler(this._keywordTextBox_TextChanged);
             //
             // _highlightCheckBox

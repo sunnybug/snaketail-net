@@ -1177,14 +1177,15 @@ namespace SnakeTail
             if (e.ColumnIndex != 1)
                 return;
 
-            Color? textColor = null;
-            Color? backColor = null;
+            Color? highlightColor = null;
+            string highlightKeyword = null;
+            bool isBookmark = false;
 
             // Bookmark coloring has higher priority, than keyword highlight
             if (MatchesBookmark(e.ItemIndex))
             {
-                backColor = _bookmarkBackColor;
-                textColor = _bookmarkTextColor;
+                highlightColor = _bookmarkBackColor;
+                isBookmark = true;
             }
             else
             {
@@ -1193,61 +1194,139 @@ namespace SnakeTail
                 {
                     if (MatchesQuickKeyword(e.Item.Text))
                     {
-                        backColor = _quickHighlightColor;
-                        textColor = GetContrastColor(_quickHighlightColor);
+                        highlightColor = _quickHighlightColor;
+                        highlightKeyword = _quickKeyword;
                     }
                 }
 
                 // 配置的关键字高亮
-                if (!backColor.HasValue)
+                if (!highlightColor.HasValue)
                 {
                     TailKeywordConfig keyword = MatchesKeyword(e.Item.Text, false, true);
                     if (keyword != null)
                     {
-                        if (keyword.FormBackColor.HasValue && keyword.FormTextColor.HasValue)
+                        if (keyword.FormBackColor.HasValue)
                         {
-                            backColor = keyword.FormBackColor.Value;
-                            textColor = keyword.FormTextColor.Value;
+                            highlightColor = keyword.FormBackColor.Value;
+                            highlightKeyword = keyword.Keyword;
                         }
                     }
                 }
             }
 
-            //toggle colors if the item is highlighted
+            // 设置背景色
             if (e.Item.Selected)
             {
-                if (backColor.HasValue || textColor.HasValue)
-                {
-                    e.SubItem.BackColor = SystemColors.Highlight;
-                    e.SubItem.ForeColor = Color.FromArgb(SystemColors.Highlight.A, (SystemColors.Highlight.R + 128) % 256, (SystemColors.Highlight.G + 128) % 256, (SystemColors.Highlight.B + 128) % 256);
-                }
-                else
-                {
-                    e.SubItem.BackColor = SystemColors.Highlight;
-                    e.SubItem.ForeColor = SystemColors.HighlightText;
-                }
+                e.SubItem.BackColor = SystemColors.Highlight;
+                e.SubItem.ForeColor = highlightColor.HasValue
+                    ? Color.FromArgb(SystemColors.Highlight.A, (SystemColors.Highlight.R + 128) % 256, (SystemColors.Highlight.G + 128) % 256, (SystemColors.Highlight.B + 128) % 256)
+                    : SystemColors.HighlightText;
             }
             else
             {
-                if (backColor.HasValue)
-                    e.SubItem.BackColor = backColor.Value;
-                else
-                    e.SubItem.BackColor = e.Item.ListView.BackColor;
-                if (textColor.HasValue)
-                    e.SubItem.ForeColor = textColor.Value;
-                else
-                    e.SubItem.ForeColor = e.Item.ListView.ForeColor;
+                e.SubItem.BackColor = e.Item.ListView.BackColor;
+                e.SubItem.ForeColor = e.Item.ListView.ForeColor;
             }
 
-            // Draw the standard header background.
+            // 绘制背景
             e.DrawBackground();
             e.DrawFocusRectangle(e.Bounds);
 
+            // 如果有高亮，在行最左边绘制色块
+            const int colorBlockWidth = 4;
+            if (highlightColor.HasValue)
+            {
+                Rectangle colorBlockRect = new Rectangle(e.Bounds.Left, e.Bounds.Top, colorBlockWidth, e.Bounds.Height);
+                using (SolidBrush brush = new SolidBrush(highlightColor.Value))
+                {
+                    e.Graphics.FillRectangle(brush, colorBlockRect);
+                }
+            }
+
+            // 计算文本绘制区域（留出色块空间）
+            Rectangle textBounds = new Rectangle(
+                e.Bounds.Left + colorBlockWidth + 2,
+                e.Bounds.Top,
+                e.Bounds.Width - colorBlockWidth - 2,
+                e.Bounds.Height);
+
+            string text = e.Item.Text.Length > 1000 ? e.Item.Text.Substring(0, 1000) : e.Item.Text;
             TextFormatFlags flags = TextFormatFlags.Left | TextFormatFlags.ExpandTabs | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix;
-            if (e.Item.Text.Length > 1000)
-                TextRenderer.DrawText(e.Graphics, e.Item.Text.Substring(0, 1000), e.Item.ListView.Font, e.Bounds, e.SubItem.ForeColor, flags);
+
+            // 如果有关键字高亮且不是书签，绘制带高亮的文本
+            if (highlightColor.HasValue && !string.IsNullOrEmpty(highlightKeyword) && !isBookmark && !e.Item.Selected)
+            {
+                DrawTextWithHighlight(e.Graphics, text, e.Item.ListView.Font, textBounds, e.SubItem.ForeColor, highlightColor.Value, highlightKeyword, flags);
+            }
             else
-                TextRenderer.DrawText(e.Graphics, e.Item.Text, e.Item.ListView.Font, e.Bounds, e.SubItem.ForeColor, flags);
+            {
+                TextRenderer.DrawText(e.Graphics, text, e.Item.ListView.Font, textBounds, e.SubItem.ForeColor, flags);
+            }
+        }
+
+        /// <summary>
+        /// 绘制带关键字高亮的文本
+        /// </summary>
+        private void DrawTextWithHighlight(Graphics g, string text, Font font, Rectangle bounds, Color textColor, Color highlightColor, string keyword, TextFormatFlags flags)
+        {
+            // 查找所有关键字位置
+            List<int> keywordPositions = new List<int>();
+            int pos = 0;
+            while ((pos = text.IndexOf(keyword, pos, StringComparison.CurrentCultureIgnoreCase)) != -1)
+            {
+                keywordPositions.Add(pos);
+                pos += keyword.Length;
+            }
+
+            if (keywordPositions.Count == 0)
+            {
+                // 没有找到关键字，直接绘制
+                TextRenderer.DrawText(g, text, font, bounds, textColor, flags);
+                return;
+            }
+
+            // 分段绘制文本
+            int currentX = bounds.Left;
+            int lastEnd = 0;
+            Color highlightTextColor = GetContrastColor(highlightColor);
+
+            foreach (int keywordPos in keywordPositions)
+            {
+                // 绘制关键字前的普通文本
+                if (keywordPos > lastEnd)
+                {
+                    string beforeText = text.Substring(lastEnd, keywordPos - lastEnd);
+                    Size beforeSize = TextRenderer.MeasureText(g, beforeText, font, new Size(int.MaxValue, bounds.Height), flags);
+                    Rectangle beforeRect = new Rectangle(currentX, bounds.Top, beforeSize.Width, bounds.Height);
+                    TextRenderer.DrawText(g, beforeText, font, beforeRect, textColor, flags);
+                    currentX += beforeSize.Width - 4; // 减去一些间距补偿
+                }
+
+                // 绘制高亮的关键字
+                string keywordText = text.Substring(keywordPos, keyword.Length);
+                Size keywordSize = TextRenderer.MeasureText(g, keywordText, font, new Size(int.MaxValue, bounds.Height), flags);
+                Rectangle keywordRect = new Rectangle(currentX, bounds.Top, keywordSize.Width, bounds.Height);
+
+                // 绘制关键字背景
+                using (SolidBrush brush = new SolidBrush(highlightColor))
+                {
+                    Rectangle bgRect = new Rectangle(currentX, bounds.Top + 1, keywordSize.Width - 4, bounds.Height - 2);
+                    g.FillRectangle(brush, bgRect);
+                }
+
+                // 绘制关键字文本
+                TextRenderer.DrawText(g, keywordText, font, keywordRect, highlightTextColor, flags);
+                currentX += keywordSize.Width - 4;
+                lastEnd = keywordPos + keyword.Length;
+            }
+
+            // 绘制最后一段普通文本
+            if (lastEnd < text.Length)
+            {
+                string afterText = text.Substring(lastEnd);
+                Rectangle afterRect = new Rectangle(currentX, bounds.Top, bounds.Right - currentX, bounds.Height);
+                TextRenderer.DrawText(g, afterText, font, afterRect, textColor, flags);
+            }
         }
 
         private bool MatchesBookmark(int lineNumber)

@@ -3,6 +3,14 @@
 
 $ErrorActionPreference = "Stop"
 
+# 解析命令行参数
+$debugMode = $false
+foreach ($arg in $args) {
+    if ($arg -eq "--debug" -or $arg -eq "-d") {
+        $debugMode = $true
+    }
+}
+
 # 项目路径
 $projectPath = "D:\xsw\code\snaketail-net"
 $projectFile = "$projectPath\SnakeTail\SnakeTail.csproj"
@@ -50,6 +58,40 @@ if (-not (Test-Path $exePath)) {
 Write-Host "正在启动程序..." -ForegroundColor Green
 
 # 运行程序
-Start-Process $exePath
+if ($debugMode) {
+    Write-Host "使用调试模式启动..." -ForegroundColor Cyan
+    # 尝试使用 Visual Studio 调试器启动
+    $devenvPath = "D:\Apps\VisualStudio2022\Common7\IDE\devenv.exe"
+    if (Test-Path $devenvPath) {
+        # 使用 devenv /DebugExe 启动调试器
+        Write-Host "正在使用 Visual Studio 调试器启动..." -ForegroundColor Cyan
+        & $devenvPath /DebugExe $exePath
+    } else {
+        # 如果找不到 devenv，尝试查找其他 Visual Studio 版本
+        $vsPaths = @(
+            "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\devenv.exe",
+            "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\devenv.exe",
+            "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\devenv.exe",
+            "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\Common7\IDE\devenv.exe",
+            "C:\Program Files (x86)\Microsoft Visual Studio\2019\Professional\Common7\IDE\devenv.exe",
+            "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\Common7\IDE\devenv.exe"
+        )
+        $found = $false
+        foreach ($path in $vsPaths) {
+            if (Test-Path $path) {
+                Write-Host "正在使用 Visual Studio 调试器启动: $path" -ForegroundColor Cyan
+                & $path /DebugExe $exePath
+                $found = $true
+                break
+            }
+        }
+        if (-not $found) {
+            Write-Host "未找到 Visual Studio，使用普通模式启动（请手动附加调试器）" -ForegroundColor Yellow
+            Start-Process $exePath
+        }
+    }
+} else {
+    Start-Process $exePath
+}
 
 Write-Host "程序已启动" -ForegroundColor Green

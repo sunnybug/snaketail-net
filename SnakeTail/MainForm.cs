@@ -95,9 +95,18 @@ namespace SnakeTail
 
         private void UpdateTitle()
         {
-            Text = Application.ProductName;
-            if (_currenTailConfig != null)
-                Text += " - " + Path.GetFileNameWithoutExtension(_currenTailConfig);
+            if (IsDisposed || Disposing)
+                return;
+            try
+            {
+                Text = Application.ProductName;
+                if (_currenTailConfig != null)
+                    Text += " - " + Path.GetFileNameWithoutExtension(_currenTailConfig);
+            }
+            catch
+            {
+                // 忽略在窗口关闭时更新标题的错误
+            }
         }
 
         private void MainForm_Shown(object sender, EventArgs e)
@@ -272,7 +281,10 @@ namespace SnakeTail
             if (!openedFile)
             {
                 MessageBox.Show(this, "The file '" + filename + "'cannot be opened and will be removed from the Recent list(s)", "", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                _mruMenu.RemoveFile(number);
+                if (_mruMenu != null)
+                {
+                    _mruMenu.RemoveFile(number);
+                }
                 if (_mruSqliteStorage != null)
                 {
                     _mruSqliteStorage.RemoveFile(filename);
@@ -365,7 +377,10 @@ namespace SnakeTail
                     }
 
                     // 添加到菜单
-                    _mruMenu.AddFile(fullPath);
+                    if (_mruMenu != null)
+                    {
+                        _mruMenu.AddFile(fullPath);
+                    }
 
                     // 保存到 SQLite（如果可用）
                     if (_mruSqliteStorage != null)
@@ -526,23 +541,26 @@ namespace SnakeTail
         private void SaveSession(string filepath)
         {
             TailConfig tailConfig = new TailConfig();
-            if (_MDITabControl.Visible)
+            if (_MDITabControl != null && _MDITabControl.Visible)
                 tailConfig.SelectedTab = _MDITabControl.SelectedIndex;
             else
                 tailConfig.SelectedTab = -1;
             tailConfig.WindowSize = Size;
             tailConfig.WindowPosition = DesktopLocation;
-            tailConfig.MinimizedToTray = _trayIcon.Visible;
+            tailConfig.MinimizedToTray = _trayIcon != null && _trayIcon.Visible;
             tailConfig.AlwaysOnTop = TopMost;
 
             List<Form> childForms = new List<Form>();
 
             // We first loop through the tabpages to store in proper TabPage order
-            foreach (TabPage tagPage in _MDITabControl.TabPages)
+            if (_MDITabControl != null && !_MDITabControl.IsDisposed)
             {
-                Form tailForm = tagPage.Tag as Form;
-                if (tailForm != null)
-                    childForms.Add(tailForm);
+                foreach (TabPage tagPage in _MDITabControl.TabPages)
+                {
+                    Form tailForm = tagPage.Tag as Form;
+                    if (tailForm != null)
+                        childForms.Add(tailForm);
+                }
             }
 
             // Then we loop through all forms (includes free floating)
@@ -568,7 +586,10 @@ namespace SnakeTail
 
             if (String.IsNullOrEmpty(_currenTailConfig))
             {
-                _mruMenu.AddFile(filepath);
+                if (_mruMenu != null)
+                {
+                    _mruMenu.AddFile(filepath);
+                }
                 if (_mruSqliteStorage != null)
                 {
                     _mruSqliteStorage.AddFile(filepath);
@@ -576,7 +597,10 @@ namespace SnakeTail
             }
             else if (_currenTailConfig != filepath)
             {
-                _mruMenu.RenameFile(_currenTailConfig, filepath);
+                if (_mruMenu != null)
+                {
+                    _mruMenu.RenameFile(_currenTailConfig, filepath);
+                }
                 if (_mruSqliteStorage != null)
                 {
                     _mruSqliteStorage.RenameFile(_currenTailConfig, filepath);
@@ -662,7 +686,10 @@ namespace SnakeTail
             if (tailConfig == null)
                 return false;
 
-            _mruMenu.AddFile(filepath);
+            if (_mruMenu != null)
+            {
+                _mruMenu.AddFile(filepath);
+            }
             if (_mruSqliteStorage != null)
             {
                 _mruSqliteStorage.AddFile(filepath);
@@ -953,7 +980,10 @@ namespace SnakeTail
 
         private void clearListToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            _mruMenu.RemoveAll();
+            if (_mruMenu != null)
+            {
+                _mruMenu.RemoveAll();
+            }
             if (_mruSqliteStorage != null)
             {
                 _mruSqliteStorage.ClearAll();
@@ -965,8 +995,6 @@ namespace SnakeTail
         {
             try
             {
-                _instance = null;
-
                 // 自动保存当前会话到默认位置
                 try
                 {
@@ -1038,6 +1066,11 @@ namespace SnakeTail
                 {
                     // 如果 MessageBox 也失败，则完全忽略
                 }
+            }
+            finally
+            {
+                // 最后才将 _instance 设置为 null，确保异常处理可以访问它
+                _instance = null;
             }
         }
 

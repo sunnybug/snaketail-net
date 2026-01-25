@@ -48,7 +48,7 @@ namespace JWC
 		public MruStripMenu(ToolStripMenuItem recentFileMenuItem, ClickedHandler clickedHandler, int maxEntries)
 			: this(recentFileMenuItem, clickedHandler, null, false, maxEntries)
 		{
-			
+
 		}
 
 		/// <summary>
@@ -162,19 +162,19 @@ namespace JWC
 
 		public int NumEntries
 		{
-			get 
+			get
 			{
-				return numEntries; 
+				return numEntries;
 			}
 		}
 
 		public int MaxEntries
 		{
-			get 
+			get
 			{
-				return maxEntries; 
+				return maxEntries;
 			}
-			set 
+			set
 			{
 				if (value > 16)
 				{
@@ -547,7 +547,7 @@ namespace JWC
 
 				menuItem.Text = FixupEntryname(0, entryname);
 				menuItem.Tag = filename;
-                menuItem.ToolTipText = filename; 
+                menuItem.ToolTipText = filename;
 
 				MenuItems.Insert(StartIndex, menuItem);
 
@@ -599,7 +599,7 @@ namespace JWC
 			if (numEntries > 0)
 			{
 				// remove all items in the sub menu
-				MenuItems.Clear(); 
+				MenuItems.Clear();
 				Disable();
 				numEntries = 0;
 			}
@@ -740,7 +740,11 @@ namespace JWC
         {
             if (disposing)
             {
-                mruStripMutex.Close();
+                if (mruStripMutex != null)
+                {
+                    mruStripMutex.Close();
+                    mruStripMutex = null;
+                }
             }
         }
 

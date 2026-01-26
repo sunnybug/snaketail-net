@@ -505,11 +505,14 @@ namespace SnakeTail
             this.Controls.Add(this._keywordToolStrip);
             this.Controls.Add(this._statusStrip);
             this.Controls.Add(this._menuStrip);
+            this.AllowDrop = true;
             this.KeyPreview = true;
             this.MainMenuStrip = this._menuStrip;
             this.Name = "TailForm";
             this.Text = "TailForm";
             this.Activated += new System.EventHandler(this.TailForm_Activated);
+            this.DragDrop += new System.Windows.Forms.DragEventHandler(this.TailForm_DragDrop);
+            this.DragEnter += new System.Windows.Forms.DragEventHandler(this.TailForm_DragEnter);
             this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.TailForm_FormClosing);
             this.Load += new System.EventHandler(this.TailForm_Load);
             this.Resize += new System.EventHandler(this.TailForm_Resize);

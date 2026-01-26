@@ -315,7 +315,7 @@ namespace SnakeTail
                 return string.Empty;
         }
 
-        private int OpenFileSelection(string[] filenames)
+        public int OpenFileSelection(string[] filenames)
         {
             if (_defaultTailConfig == null)
             {

@@ -1,4 +1,4 @@
-﻿#region License statement
+#region License statement
 /* SnakeTail is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, version 3 of the License.
@@ -282,10 +282,13 @@ namespace SnakeTail
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(602, 318);
             this.Controls.Add(this.splitContainer1);
+            this.AllowDrop = true;
             this.MainMenuStrip = this._menuStrip;
             this.Name = "EventLogForm";
             this.Text = "EventLog";
             this.Activated += new System.EventHandler(this.EventLogForm_Activated);
+            this.DragDrop += new System.Windows.Forms.DragEventHandler(this.EventLogForm_DragDrop);
+            this.DragEnter += new System.Windows.Forms.DragEventHandler(this.EventLogForm_DragEnter);
             this.FormClosed += new System.Windows.Forms.FormClosedEventHandler(this.EventLogForm_FormClosed);
             this.Load += new System.EventHandler(this.EventLogForm_Load);
             this.splitContainer1.Panel1.ResumeLayout(false);

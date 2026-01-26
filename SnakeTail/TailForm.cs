@@ -1174,6 +1174,59 @@ namespace SnakeTail
                 _logFileCache.Reset();
         }
 
+        private void TailForm_DragEnter(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+                e.Effect = DragDropEffects.Copy;
+            else
+                e.Effect = DragDropEffects.None;
+        }
+
+        private void TailForm_DragDrop(object sender, DragEventArgs e)
+        {
+            try
+            {
+                Array array = e.Data.GetData(DataFormats.FileDrop) as Array;
+                if (array == null)
+                    return;
+
+                // Extract strings from array
+                List<string> filenames = new List<string>();
+                foreach (object filename in array)
+                {
+                    filenames.Add(filename.ToString());
+                }
+
+                this.Activate();        // in the case Explorer overlaps this form
+
+                // Call OpenFile asynchronously.
+                // Explorer instance from which file is dropped is not responding
+                // all the time when DragDrop handler is active, so we need to return
+                // immidiately (especially if OpenFile shows MessageBox).
+                System.Threading.ThreadPool.QueueUserWorkItem(worker_DoWork, filenames.ToArray());
+            }
+            catch (Exception ex)
+            {
+                // don't show MessageBox here - Explorer is waiting !
+                System.Diagnostics.Debug.WriteLine("Drag Drop Failed: " + ex.Message);
+            }
+        }
+
+        void worker_DoWork(object param)
+        {
+            // Discovered a strange problem where the Windows Explorer would lock, eventhough I deferred the actual DragDrop operation using BeginInvoke().
+            // The solution was to create a thread, that slept for 100 ms and then invoked the wanted method. If I removed the sleep from the new thread,
+            // then Windows Explorer would lock again. Very strange indeed.
+            System.Threading.Thread.Sleep(100);
+            this.BeginInvoke(new Action<string[]>(delegate(string[] filenames) 
+            { 
+                if (MainForm.Instance != null)
+                {
+                    MainForm.Instance.OpenFileSelection(filenames);
+                }
+            }), new object[] { param });
+        }
+
         private void _tailListView_CacheVirtualItems(object sender, CacheVirtualItemsEventArgs e)
         {
             _logFileCache.PrepareCache(e.StartIndex, e.EndIndex, false);

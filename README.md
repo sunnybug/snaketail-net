@@ -1,29 +1,33 @@
 # snaketail-net
-Tail utility for monitoring text log files and Windows EventLog
+用于监控文本日志文件和 Windows 事件日志的 Tail 工具
 
-- Monitor "large" text log files
-- Monitor Windows Event Logs (Without needing administrator rights)
-- Multiple Window Modes supported (MDI, Tabbed, Floating)
-- Save and load entire window session. Can load session file at startup when given as command line parameter.
-- Sentence highlight with colors based on keyword match (Includes regex support)
-- Quickly jump between highlighted sentences using keyboard shortcuts
-- Toggle bookmarks and quickly jump between bookmarks
-- Configure external tools and bind custom shortcut key (Trigger execute on highlight)
-- Tails circular logs where the log file is periodically truncated/renamed
-- Tails log directory where the latest log file is displayed (Includes wildcards)
-- Search in the entire text log file (or Windows EventLog)
-- Highlight window tabs using icons, when file changes are detected
-- Tail new log files with a simple drag drop from Windows Explorer
-- Filtering of Windows Event Logs using regular expressions
-- Display simple process statistics in window title bar (RAM + CPU usage + TRX/Sec)
-- Stop and start services directly
-- Change tail window background color
-- Change tail window text color
-- Change tail window icon
-- Minimize to tray
-- Low memory usage independent of log file size
-- Low cpu usage even when more than 100 lines/sec
-- Works well over remote desktop
-- Supports Windows 2000, XP, 2003, Vista, Win2k8, Win7
-- Requires .NET 2.0
-- GNU GPL License v3
+- 监控"大型"文本日志文件
+- 监控 Windows 事件日志（无需管理员权限）
+- 支持多种窗口模式（MDI、标签页、浮动窗口）
+- 保存和加载整个窗口会话。可以在启动时通过命令行参数加载会话文件
+- 基于关键字匹配的句子高亮（支持正则表达式）
+  - 关键字高亮：只高亮关键字文本本身，而不是整行背景
+  - 行标识：匹配关键字的行在最左边显示一个色块标识
+  - 支持快速高亮和配置的关键字高亮两种模式
+- 使用键盘快捷键快速跳转到高亮的句子
+- 切换书签并快速在书签间跳转
+- 配置外部工具并绑定自定义快捷键（在高亮时触发执行）
+- 跟踪循环日志，其中日志文件会定期截断/重命名
+- 跟踪日志目录，显示最新的日志文件（支持通配符）
+- 清空显示区域（快捷键 Ctrl+L）：记住当前读取的log文件位置，清空当前log的显示区域，从前一次读取的log文件位置继续读取
+- 在整个文本日志文件（或 Windows 事件日志）中搜索
+- 当检测到文件更改时，使用图标高亮窗口标签页
+- 通过简单的拖放操作从 Windows 资源管理器跟踪新日志文件
+- 使用正则表达式过滤 Windows 事件日志
+- 在窗口标题栏显示简单的进程统计信息（内存 + CPU 使用率 + 事务/秒）
+- 直接停止和启动服务
+- 更改跟踪窗口背景颜色
+- 更改跟踪窗口文本颜色
+- 更改跟踪窗口图标
+- 最小化到系统托盘
+- 低内存占用，与日志文件大小无关
+- 即使每秒超过 100 行也能保持低 CPU 使用率
+- 在远程桌面上运行良好
+- 支持 Windows 2000、XP、2003、Vista、Win2k8、Win7
+- 需要 .NET 2.0
+- GNU GPL 许可证 v3

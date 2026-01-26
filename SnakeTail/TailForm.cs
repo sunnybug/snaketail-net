@@ -111,6 +111,7 @@ namespace SnakeTail
         Dictionary<int, int> _filteredIndexMap = new Dictionary<int, int>(); // 过滤后的虚拟索引到实际行号的映射
         int _filteredVirtualListSize = 0;
         int _originalVirtualListSize = 0; // 保存原始列表大小
+        int _savedLineNumber = 0; // 保存的清空前的行号
 
         private TailFileConfig _currentTailConfig = null;
 
@@ -350,6 +351,7 @@ namespace SnakeTail
                 // Add loading of cache while counting lines in file
                 int lineCount = _logFileCache.FillTailCache(_logTailStream);
                 _tailListView.VirtualListSize = lineCount;
+                _savedLineNumber = 0; // 重置行号偏移量
                 _originalVirtualListSize = 0; // 重置原始大小
                 if (_quickFilter)
                 {
@@ -475,6 +477,9 @@ namespace SnakeTail
                 _bookmarks.Clear();
                 _tailListView.Invalidate();
             }
+
+            // 文件被重新加载，重置行号偏移量
+            _savedLineNumber = 0;
 
             SetStatusBar(null);
         }
@@ -730,6 +735,7 @@ namespace SnakeTail
             // Reload the view
             _tailListView.Items.Clear();
             _tailListView.VirtualListSize = 0;
+            _savedLineNumber = 0; // 重置行号偏移量
             _topIndexHack = true;
             Application.DoEvents();
 
@@ -890,6 +896,7 @@ namespace SnakeTail
                             searchFileCache = new LogFileCache(_logFileCache.Items.Count);
                             searchFileCache.Items = _logFileCache.Items.GetRange(0, _logFileCache.Items.Count);
                             searchFileCache.FirstIndex = _logFileCache.FirstIndex;
+                            searchFileCache.LineOffset = _logFileCache.LineOffset;  // 复制行号偏移量
                         }
                     }
                     if (searchFileCache != null)
@@ -1056,6 +1063,7 @@ namespace SnakeTail
                         searchFileCache = new LogFileCache(_logFileCache.Items.Count);
                         searchFileCache.Items = _logFileCache.Items.GetRange(0, _logFileCache.Items.Count);
                         searchFileCache.FirstIndex = _logFileCache.FirstIndex;
+                        searchFileCache.LineOffset = _logFileCache.LineOffset;  // 复制行号偏移量
                     }
                 }
             } while (matchFound != -1);
@@ -1065,9 +1073,9 @@ namespace SnakeTail
 
         private void _tailListView_RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs e)
         {
-            int actualIndex = e.ItemIndex;
+            int displayIndex = e.ItemIndex;  // 显示列表中的索引
 
-            // 如果启用过滤，需要将虚拟索引映射到实际行号
+            // 如果启用过滤，需要将虚拟索引映射到过滤后的行号
             if (_quickFilter && !string.IsNullOrEmpty(_quickKeyword))
             {
                 if (!_filteredIndexMap.ContainsKey(e.ItemIndex))
@@ -1079,16 +1087,17 @@ namespace SnakeTail
                     e.Item = lvi;
                     return;
                 }
-                actualIndex = _filteredIndexMap[e.ItemIndex];
+                displayIndex = _filteredIndexMap[e.ItemIndex];
             }
 
-            e.Item = _logFileCache.LookupCache(actualIndex);
+            // cache 使用显示行号（从 0 开始）
+            e.Item = _logFileCache.LookupCache(displayIndex);
             if (e.Item != null)
                 return;
 
-            if (_logFileCache.FillCache(_logFileStream, actualIndex) != -1)
+            if (_logFileCache.FillCache(_logFileStream, displayIndex) != -1)
             {
-                e.Item = _logFileCache.LookupCache(actualIndex);
+                e.Item = _logFileCache.LookupCache(displayIndex);
                 if (e.Item != null)
                     return;
             }
@@ -1111,8 +1120,10 @@ namespace SnakeTail
                 }
             }
 
-            lvi2.Text = _logFileStream.ReadLine(actualIndex + 1);      // assign the text to the item
-            _logFileCache.SetLastCacheMiss(actualIndex, lvi2);
+            // 文件读取使用实际行号（显示行号 + 偏移量 + 1）
+            int fileLineNumber = _savedLineNumber + displayIndex + 1;
+            lvi2.Text = _logFileStream.ReadLine(fileLineNumber);      // assign the text to the item
+            _logFileCache.SetLastCacheMiss(displayIndex, lvi2);
             e.Item = lvi2;
         }
 
@@ -1584,7 +1595,8 @@ namespace SnakeTail
 
             CheckExternalToolResults();
 
-            int lineCount = _tailListView.VirtualListSize;
+            int displayLineCount = _tailListView.VirtualListSize;  // 当前显示的行数
+            int actualLineCount = _savedLineNumber + displayLineCount;  // 文件中的实际行号
             bool listAtBottom = ListAtBottom();
             bool warningIcon = false;
 
@@ -1597,11 +1609,13 @@ namespace SnakeTail
             else
                 warningIcon = true;
 
-            string line = _logTailStream.ReadLine(lineCount + 1);
+            // 从文件的实际位置读取新行
+            string line = _logTailStream.ReadLine(actualLineCount + 1);
             while (line != null)
             {
-                ++lineCount;
-                _logFileCache.AppendTailCache(line, lineCount);
+                ++displayLineCount;
+                ++actualLineCount;
+                _logFileCache.AppendTailCache(line, displayLineCount);  // cache 使用显示行号
                 TailKeywordConfig keywordMatch = MatchesKeyword(line, false, false);
                 if (keywordMatch != null)
                 {
@@ -1611,28 +1625,35 @@ namespace SnakeTail
                     {
                         CheckExternalToolResults();
                         if (_threadPoolQueue != null)
-                            _threadPoolQueue.QueueRequest(ExecuteExternalTool, GenerateExternalTool(keywordMatch.ExternalToolConfig, line, lineCount, keywordMatch.Keyword));
+                            _threadPoolQueue.QueueRequest(ExecuteExternalTool, GenerateExternalTool(keywordMatch.ExternalToolConfig, line, actualLineCount, keywordMatch.Keyword));
                     }
                     if (keywordMatch.AlertHighlight.Value)
                         warningIcon = true;
                 }
-                line = _logTailStream.ReadLine(lineCount + 1);
+                line = _logTailStream.ReadLine(actualLineCount + 1);
             }
 
-            if (lineCount == _tailListView.VirtualListSize)
+            if (displayLineCount == _tailListView.VirtualListSize)
             {
-                if (lineCount == 1 && _logTailStream.Length == 0)
+                if (displayLineCount == 0 && _savedLineNumber == 0 && _logTailStream.Length == 0)
+                {
+                    // 文件为空或无法打开，显示错误信息
+                    return;
+                }
+                else if (displayLineCount == 1 && _savedLineNumber == 0 && _logTailStream.Length == 0)
                 {
                     // Check if the open file error has changed
                     if (_tailListView.Items[0].Text == _logTailStream.ReadLine(1))
                         return;
                 }
-                else if (_logTailStream.ValidLineCount(lineCount))
+                else if (_logTailStream.ValidLineCount(actualLineCount))
                 {
                     return;
                 }
 
-                lineCount = 0;
+                // 文件被截断或重载，重置偏移量
+                displayLineCount = 0;
+                _savedLineNumber = 0;
             }
 
             if (_displayTabIcon)
@@ -1647,12 +1668,15 @@ namespace SnakeTail
                 }
             }
 
-            if (lineCount < _tailListView.VirtualListSize)
+            if (displayLineCount < _tailListView.VirtualListSize)
             {
+                // 文件被截断，重置
                 _logFileStream.CheckLogFile(true);
                 _logFileCache = new LogFileCache(_logFileCache.Items.Count);
+                _logFileCache.LineOffset = 0;  // 重置行号偏移量
                 _tailListView.TopItem = null;
-                _tailListView.VirtualListSize = lineCount;
+                _tailListView.VirtualListSize = displayLineCount;
+                _savedLineNumber = 0;  // 重置偏移量
                 _originalVirtualListSize = 0; // 重置原始大小
                 if (_quickFilter)
                 {
@@ -1666,12 +1690,12 @@ namespace SnakeTail
                 if (!_quickFilter)
                 {
                     _originalVirtualListSize = 0; // 重置原始大小
-                    ListViewUtil.SetVirtualListSizeWithoutRefresh(_tailListView, lineCount);
+                    ListViewUtil.SetVirtualListSizeWithoutRefresh(_tailListView, displayLineCount);
                 }
                 else
                 {
                     // 如果启用过滤，更新原始大小并重新应用过滤
-                    _originalVirtualListSize = lineCount;
+                    _originalVirtualListSize = displayLineCount;
                     ApplyKeywordFilter();
                 }
                 if (listAtBottom && _tailListView.VirtualListSize > 0)
@@ -1946,8 +1970,9 @@ namespace SnakeTail
         {
             bool windowsService = _taskMonitor != null && _taskMonitor.ServiceController != null;
             bool pauseAndContinue = _taskMonitor != null && _taskMonitor.CanPauseAndContinue;
-            startServiceToolStripMenuItem.Enabled = windowsService;
-            stopServiceToolStripMenuItem.Enabled = windowsService;
+            // 非系统日志（普通文件日志）不显示 Start Service 和 Stop Service 菜单项
+            startServiceToolStripMenuItem.Visible = false;
+            stopServiceToolStripMenuItem.Visible = false;
             pauseServiceToolStripMenuItem.Visible = pauseAndContinue;
             resumeServiceToolStripMenuItem.Visible = pauseAndContinue;
             pauseWindowToolStripMenuItem.Checked = Paused;
@@ -2291,6 +2316,43 @@ namespace SnakeTail
             {
                 _tailListView.Invalidate();
             }
+        }
+
+        private void clearLogToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            // 只对文件型log有效（TailForm），事件日志（EventLogForm）不适用
+            if (_logTailStream == null)
+                return;
+
+            // 记住当前读取的log文件位置（行号）作为偏移量
+            // 这样 timer 会从 _savedLineNumber + 1 开始读取新行
+            _savedLineNumber = _savedLineNumber + _tailListView.VirtualListSize;
+
+            // 清空当前log的显示区域
+            if (_logFileCache != null)
+            {
+                _logFileCache.Reset();
+            }
+
+            // 重新创建缓存，并设置行号偏移量
+            int cacheSize = _currentTailConfig != null && _currentTailConfig.FileCacheSize > 0
+                ? _currentTailConfig.FileCacheSize
+                : 1000;
+            _logFileCache = new LogFileCache(cacheSize);
+            _logFileCache.LineOffset = _savedLineNumber;  // 设置行号偏移量
+            _logFileCache.LoadingFileEvent += new EventHandler(_logFileCache_LoadingFileEvent);
+            _logFileCache.FillCacheEvent += new EventHandler(_logFileCache_FillCacheEvent);
+
+            _tailListView.VirtualListSize = 0;
+            _originalVirtualListSize = 0;
+            _filteredIndexMap.Clear();
+            _filteredVirtualListSize = 0;
+            _bookmarks.Clear();
+            _tailListView.Invalidate();
+            _tailListView.Update();
+
+            // 不重新读取旧内容，显示区域保持为空
+            // timer 会检测到新行时才显示
         }
     }
 

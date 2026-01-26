@@ -1,4 +1,4 @@
-﻿#region License statement
+#region License statement
 /* SnakeTail is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, version 3 of the License.
@@ -25,6 +25,12 @@ namespace SnakeTail
         public int FirstIndex { get; set; }
         public List<ListViewItem> Items { get; set; }
 
+        /// <summary>
+        /// 行号偏移量，用于清空显示后从文件的实际位置读取
+        /// 文件行号 = LineOffset + cache索引 + 1
+        /// </summary>
+        public int LineOffset { get; set; }
+
         ListViewItem _lastCacheMissItem = null;
         int _lastCacheMissIndex = 0;
 
@@ -37,6 +43,7 @@ namespace SnakeTail
             for (int i = 0; i < cacheSize; ++i)
                 Items.Add(null);
             FirstIndex = 0;
+            LineOffset = 0;
         }
 
         public void Reset()
@@ -149,7 +156,8 @@ namespace SnakeTail
                         FillCacheEvent(this, EventArgs.Empty);
                 }
 
-                string line = logFileStream.ReadLine(FirstIndex + i + 1);
+                // 文件行号 = LineOffset + cache索引 + 1
+                string line = logFileStream.ReadLine(LineOffset + FirstIndex + i + 1);
                 if (line == null)
                 {
                     lastItem = i - 1;

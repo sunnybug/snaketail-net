@@ -86,6 +86,7 @@ namespace SnakeTail
             this.openContainingFolderToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.copyAsPathToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.reopenFileToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.clearLogToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.startServiceToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.stopServiceToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.pauseServiceToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
@@ -215,6 +216,7 @@ namespace SnakeTail
             this.openContainingFolderToolStripMenuItem,
             this.copyAsPathToolStripMenuItem,
             this.reopenFileToolStripMenuItem,
+            this.clearLogToolStripMenuItem,
             toolStripSeparator5,
             this.startServiceToolStripMenuItem,
             this.stopServiceToolStripMenuItem,
@@ -318,6 +320,14 @@ namespace SnakeTail
             this.reopenFileToolStripMenuItem.Size = new System.Drawing.Size(246, 22);
             this.reopenFileToolStripMenuItem.Text = "Reopen File";
             this.reopenFileToolStripMenuItem.Click += new System.EventHandler(this.reopenFileToolStripMenuItem_Click);
+            //
+            // clearLogToolStripMenuItem
+            //
+            this.clearLogToolStripMenuItem.Name = "clearLogToolStripMenuItem";
+            this.clearLogToolStripMenuItem.ShortcutKeys = ((System.Windows.Forms.Keys)((System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.L)));
+            this.clearLogToolStripMenuItem.Size = new System.Drawing.Size(246, 22);
+            this.clearLogToolStripMenuItem.Text = "清空";
+            this.clearLogToolStripMenuItem.Click += new System.EventHandler(this.clearLogToolStripMenuItem_Click);
             //
             // startServiceToolStripMenuItem
             //
@@ -549,6 +559,7 @@ namespace SnakeTail
         private System.Windows.Forms.ToolStripMenuItem copyAsPathToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem openContainingFolderToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem reopenFileToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem clearLogToolStripMenuItem;
         private System.Windows.Forms.ToolStrip _keywordToolStrip;
         private System.Windows.Forms.ToolStripLabel _keywordLabel;
         private System.Windows.Forms.ToolStripTextBox _keywordTextBox;

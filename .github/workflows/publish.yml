@@ -27,19 +27,20 @@ jobs:
         run: choco install wixtoolset -y
         shell: pwsh
 
+      - name: 还原 NuGet 包
+        run: dotnet restore SnakeTail.sln
+        shell: pwsh
+
       - name: 构建 SnakeTail
-        run: |
-          msbuild SnakeTail\SnakeTail.csproj /p:Configuration=Release;Platform=AnyCPU /t:Clean;Rebuild
+        run: msbuild SnakeTail\SnakeTail.csproj '/p:Configuration=Release;Platform=AnyCPU' '/t:Clean;Rebuild'
         shell: pwsh
 
       - name: 构建 WiX 安装包 (x86)
-        run: |
-          msbuild SnakeTail.Wix\SnakeTail.Wix.wixproj /p:Configuration=Release;Platform=AnyCPU;TargetPlatform=x86
+        run: msbuild SnakeTail.Wix\SnakeTail.Wix.wixproj '/p:Configuration=Release;Platform=AnyCPU;TargetPlatform=x86'
         shell: pwsh
 
       - name: 构建 WiX 安装包 (x64)
-        run: |
-          msbuild SnakeTail.Wix\SnakeTail.Wix.wixproj /p:Configuration=Release;Platform=AnyCPU;TargetPlatform=x64
+        run: msbuild SnakeTail.Wix\SnakeTail.Wix.wixproj '/p:Configuration=Release;Platform=AnyCPU;TargetPlatform=x64'
         shell: pwsh
 
       - name: 打包发布产物

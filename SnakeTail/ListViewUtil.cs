@@ -1,4 +1,4 @@
-﻿#region License statement
+#region License statement
 /* SnakeTail is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, version 3 of the License.
@@ -29,6 +29,9 @@ namespace SnakeTail
         /// </summary>
         public static void SetVirtualListSizeWithoutRefresh(ListView listView, int count)
         {
+            if (listView == null)
+                return;
+
             NativeMethods.SendMessage(listView.Handle,
                 (uint)ListViewMessages.LVM_SETITEMCOUNT,
                 (IntPtr)count,
@@ -41,7 +44,11 @@ namespace SnakeTail
             // indices. If this is not updated, spurious ArgumentOutOfRangeExceptions
             // may be raised by functions and properties using the indexing
             // operator on ListView.Items, for instance FocusedItem.
-            listViewVirtualListSizeField.SetValue(listView, count);
+            // On .NET 8+ the internal field name may have changed; fall back to property setter.
+            if (listViewVirtualListSizeField != null)
+                listViewVirtualListSizeField.SetValue(listView, count);
+            else
+                listView.VirtualListSize = count;
         }
 
 
@@ -69,8 +76,8 @@ namespace SnakeTail
 
         static ListViewUtil()
         {
+            // .NET 8+ 可能重命名或移除了 internal 字段，找不到时 SetVirtualListSizeWithoutRefresh 会回退到 VirtualListSize 属性
             listViewVirtualListSizeField = typeof(ListView).GetField("virtualListSize", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            System.Diagnostics.Debug.Assert(listViewVirtualListSizeField != null, "System.Windows.Forms.ListView class no longer has a virtualListSize field.");
         }
 
         private static readonly System.Reflection.FieldInfo listViewVirtualListSizeField;

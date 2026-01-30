@@ -1,4 +1,4 @@
-﻿#region License statement
+#region License statement
 /* SnakeTail is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, version 3 of the License.
@@ -48,7 +48,6 @@ namespace SnakeTail
             this._resumeBtn = new System.Windows.Forms.Button();
             this._reportText = new System.Windows.Forms.TextBox();
             this._pictureBox = new System.Windows.Forms.PictureBox();
-            this._sendReportBtn = new System.Windows.Forms.Button();
             this._reportListBox = new System.Windows.Forms.ListBox();
             ((System.ComponentModel.ISupportInitialize)(this._pictureBox)).BeginInit();
             this.SuspendLayout();
@@ -105,16 +104,6 @@ namespace SnakeTail
             this._pictureBox.TabIndex = 25;
             this._pictureBox.TabStop = false;
             // 
-            // _sendReportBtn
-            // 
-            this._sendReportBtn.Location = new System.Drawing.Point(92, 110);
-            this._sendReportBtn.Name = "_sendReportBtn";
-            this._sendReportBtn.Size = new System.Drawing.Size(75, 23);
-            this._sendReportBtn.TabIndex = 0;
-            this._sendReportBtn.Text = "Send Report";
-            this._sendReportBtn.UseVisualStyleBackColor = true;
-            this._sendReportBtn.Click += new System.EventHandler(this._sendReportBtn_Click);
-            // 
             // _reportListBox
             // 
             this._reportListBox.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) 
@@ -132,13 +121,12 @@ namespace SnakeTail
             // 
             // ThreadExceptionDialogEx
             // 
-            this.AcceptButton = this._sendReportBtn;
+            this.AcceptButton = this._resumeBtn;
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.CancelButton = this._resumeBtn;
             this.ClientSize = new System.Drawing.Size(384, 145);
             this.Controls.Add(this._reportListBox);
-            this.Controls.Add(this._sendReportBtn);
             this.Controls.Add(this._pictureBox);
             this.Controls.Add(this._reportText);
             this.Controls.Add(this._resumeBtn);
@@ -166,7 +154,6 @@ namespace SnakeTail
         private System.Windows.Forms.Button _resumeBtn;
         private System.Windows.Forms.TextBox _reportText;
         private System.Windows.Forms.PictureBox _pictureBox;
-        private System.Windows.Forms.Button _sendReportBtn;
         private System.Windows.Forms.ListBox _reportListBox;
     }
 }

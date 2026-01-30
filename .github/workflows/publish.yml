@@ -35,8 +35,8 @@ jobs:
         id: outdir
         run: |
           $candidates = @(
-            'SnakeTail\bin\Release\net20',
-            'SnakeTail\bin\x64\Release\net20'
+            'SnakeTail\bin\Release\net8.0-windows',
+            'SnakeTail\bin\x64\Release\net8.0-windows'
           )
           $outDir = $null
           foreach ($d in $candidates) {

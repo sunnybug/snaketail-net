@@ -1747,6 +1747,8 @@ namespace SnakeTail
         {
             if (!_tailTimer.Enabled)
                 return;
+            if (_tailListView == null || _tailListView.IsDisposed)
+                return;
 
             UpdateFormTitle(false);
 

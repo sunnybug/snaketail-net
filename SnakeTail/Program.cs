@@ -1,4 +1,4 @@
-﻿#region License statement
+#region License statement
 /* SnakeTail is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, version 3 of the License.
@@ -15,6 +15,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Windows.Forms;
 
 namespace SnakeTail
@@ -30,14 +31,29 @@ namespace SnakeTail
         [STAThread]
         static void Main()
         {
-            AppDomain.CurrentDomain.UnhandledException += new UnhandledExceptionEventHandler(CurrentDomain_UnhandledException);
+            try
+            {
+                ApplicationConfiguration.Initialize();
 
-            Application.EnableVisualStyles();
-            Application.ThreadException += new System.Threading.ThreadExceptionEventHandler(Application_ThreadException);
-            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.Automatic);
-            Application.SetCompatibleTextRenderingDefault(false);
+                AppDomain.CurrentDomain.UnhandledException += new UnhandledExceptionEventHandler(CurrentDomain_UnhandledException);
 
-            Application.Run(new MainForm());
+                Application.EnableVisualStyles();
+                Application.ThreadException += new System.Threading.ThreadExceptionEventHandler(Application_ThreadException);
+                Application.SetUnhandledExceptionMode(UnhandledExceptionMode.Automatic);
+                Application.SetCompatibleTextRenderingDefault(false);
+
+                Application.Run(new MainForm());
+            }
+            catch (Exception ex)
+            {
+                string path = Path.Combine(Path.GetTempPath(), "SnakeTail_startup_error.txt");
+                try
+                {
+                    File.WriteAllText(path, ex.ToString());
+                }
+                catch { }
+                MessageBox.Show(ex.ToString(), "SnakeTail 启动异常", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         static void CurrentDomain_UnhandledException(object sender, UnhandledExceptionEventArgs e)
@@ -67,15 +83,33 @@ namespace SnakeTail
 
         static void SendCrashReport(Exception ex)
         {
-            CheckForUpdates updateChecker = new CheckForUpdates();
-            updateChecker.PadUrl = PadUrl;
+            try
+            {
+                if (ex == null)
+                    ex = new Exception("Unknown exception (null reference)");
 
-            ThreadExceptionDialogEx dlg = new ThreadExceptionDialogEx(ex);
-            dlg.SendReportEvent += updateChecker.SendReport;
-            if (MainForm.Instance != null && !MainForm.Instance.IsDisposed)
-                dlg.ShowDialog(MainForm.Instance);
-            else
-                dlg.ShowDialog();
+                ThreadExceptionDialogEx dlg = new ThreadExceptionDialogEx(ex);
+                if (MainForm.Instance != null && !MainForm.Instance.IsDisposed)
+                    dlg.ShowDialog(MainForm.Instance);
+                else
+                    dlg.ShowDialog();
+            }
+            catch (Exception dialogEx)
+            {
+                string path = Path.Combine(Path.GetTempPath(), "SnakeTail_crash_error.txt");
+                try
+                {
+                    File.WriteAllText(path, ex?.ToString() + Environment.NewLine + "--- Dialog failed ---" + Environment.NewLine + dialogEx.ToString());
+                }
+                catch { }
+                MessageBox.Show(
+                    "无法显示错误报告对话框。" + Environment.NewLine + Environment.NewLine +
+                    "原始异常: " + (ex?.Message ?? "null") + Environment.NewLine + Environment.NewLine +
+                    "详细已写入: " + path,
+                    Application.ProductName + " - Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
         }
     }
 }

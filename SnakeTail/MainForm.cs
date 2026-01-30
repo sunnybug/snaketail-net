@@ -854,7 +854,7 @@ namespace SnakeTail
                     CheckForUpdates updateChecker = new CheckForUpdates();
                     updateChecker.PadUrl = Program.PadUrl;
                     updateChecker.PromptAlways = true;
-                    updateChecker.SendReport(null);
+                    updateChecker.Check();
                 }
             }
             catch (Exception ex)

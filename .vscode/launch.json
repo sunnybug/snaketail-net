@@ -1,0 +1,26 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "SnakeTail (Debug)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-SnakeTail",
+      "program": "${workspaceFolder}/SnakeTail/bin/Debug/net8.0-windows/SnakeTail.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/SnakeTail/bin/Debug/net8.0-windows",
+      "stopAtEntry": false,
+      "console": "internalConsole"
+    },
+    {
+      "name": "SnakeTail (无编译直接启动)",
+      "type": "coreclr",
+      "request": "launch",
+      "program": "${workspaceFolder}/SnakeTail/bin/Debug/net8.0-windows/SnakeTail.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/SnakeTail/bin/Debug/net8.0-windows",
+      "stopAtEntry": false,
+      "console": "internalConsole"
+    }
+  ]
+}

@@ -14,7 +14,7 @@ foreach ($arg in $args) {
 # 项目路径
 $projectPath = "D:\xsw\code\snaketail-net"
 $projectFile = "$projectPath\SnakeTail\SnakeTail.csproj"
-$exePath = "$projectPath\SnakeTail\bin\Debug\net20\SnakeTail.exe"
+$exePath = "$projectPath\SnakeTail\bin\Debug\net8.0-windows\SnakeTail.exe"
 $processName = "SnakeTail"
 
 # MSBuild 路径

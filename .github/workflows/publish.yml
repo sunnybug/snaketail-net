@@ -28,7 +28,7 @@ jobs:
         shell: pwsh
 
       - name: 构建 SnakeTail (portable x64)
-        run: msbuild SnakeTail\SnakeTail.csproj '/p:Configuration=Release;Platform=x64;PlatformTarget=x64' '/t:Clean;Rebuild'
+        run: msbuild SnakeTail\SnakeTail.csproj '/p:Configuration=Release;PlatformTarget=x64' '/t:Clean;Rebuild'
         shell: pwsh
 
       - name: 定位 x64 构建输出目录

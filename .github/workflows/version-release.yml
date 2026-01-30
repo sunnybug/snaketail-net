@@ -1,0 +1,59 @@
+# 当 SnakeTail.csproj 中的版本号变动时，自动创建 tag 并触发 Publish 工作流
+name: Version Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'SnakeTail/SnakeTail.csproj'
+
+permissions:
+  contents: write   # 用于推送 tag 以触发发布
+
+jobs:
+  tag-and-trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 读取版本号
+        id: version
+        run: |
+          VERSION=$(grep -oP '<Version>\K[^<]+' SnakeTail/SnakeTail.csproj || true)
+          if [ -z "$VERSION" ]; then
+            VERSION=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' SnakeTail/SnakeTail.csproj)
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "当前版本: $VERSION"
+        shell: bash
+
+      - name: 检查 tag 是否已存在
+        id: check-tag
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q .; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "tag ${TAG} 已存在，跳过发布"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "将创建 tag ${TAG} 并触发发布"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 创建并推送 tag
+        if: steps.check-tag.outputs.exists != 'true'
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

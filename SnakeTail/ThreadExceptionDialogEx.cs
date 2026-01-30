@@ -21,6 +21,8 @@ using System.Net;
 using System.Reflection;
 using System.Text;
 using System.Windows.Forms;
+using System.IO;
+using System.Text.Json;
 using System.Xml;
 
 namespace SnakeTail
@@ -245,56 +247,87 @@ namespace SnakeTail
         }
     }
 
+    /// <summary>从 GitHub Releases API 检查是否有新版本（与 publish 工作流发布的 tag 一致）。</summary>
     class CheckForUpdates
     {
-        public string PadUrl { get; set; }
         public bool PromptAlways { get; set; }
 
         public void Check()
         {
-            if (String.IsNullOrEmpty(PadUrl))
+            string apiUrl = Program.GitHubReleasesApiUrl;
+            if (String.IsNullOrEmpty(apiUrl))
                 return;
-           
-            System.Net.HttpWebRequest req = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(PadUrl);
-            //HACK: add proxy
-            IWebProxy proxy = WebRequest.GetSystemWebProxy();
-            proxy.Credentials = System.Net.CredentialCache.DefaultCredentials;
-            req.Proxy = proxy;
-            req.PreAuthenticate = true;
-            //HACK: end add proxy
-            req.Accept = "text/html,application/xml";
-            req.UserAgent = "Mozilla/5.0";  // Fix HTTP Error 406 Not acceptable - Security incident detected
 
-            XmlDocument xmlDoc = new XmlDocument();
-            using (WebResponse response = req.GetResponse())
+            try
             {
-                xmlDoc.Load(response.GetResponseStream());
-            }
+                HttpWebRequest req = (HttpWebRequest)WebRequest.Create(apiUrl);
+                IWebProxy proxy = WebRequest.GetSystemWebProxy();
+                proxy.Credentials = CredentialCache.DefaultCredentials;
+                req.Proxy = proxy;
+                req.PreAuthenticate = true;
+                req.Accept = "application/vnd.github+json";
+                req.UserAgent = "SnakeTail";
+                req.KeepAlive = false;
 
-            XmlNode appVerNode = xmlDoc.SelectSingleNode("/XML_DIZ_INFO/Program_Info/Program_Version");
-            if (appVerNode != null)
-            {
-                Version appVer = new Version(appVerNode.InnerText);
-                if (appVer > System.Reflection.Assembly.GetExecutingAssembly().GetName().Version)
+                string tagName = null;
+                string htmlUrl = null;
+                using (WebResponse response = req.GetResponse())
+                using (Stream stream = response.GetResponseStream())
+                using (JsonDocument doc = JsonDocument.Parse(stream))
                 {
-                    string message = "New version " + appVer.ToString() + " is available at application homepage.";
-                    XmlNode appInfoURL = xmlDoc.SelectSingleNode("/XML_DIZ_INFO/Web_Info/Application_URLs/Application_Info_URL");
-                    if (appInfoURL != null && !String.IsNullOrEmpty(appInfoURL.InnerText))
+                    JsonElement root = doc.RootElement;
+                    if (root.TryGetProperty("tag_name", out JsonElement tagEl))
+                        tagName = tagEl.GetString();
+                    if (root.TryGetProperty("html_url", out JsonElement urlEl))
+                        htmlUrl = urlEl.GetString();
+                }
+
+                if (String.IsNullOrEmpty(tagName))
+                {
+                    if (PromptAlways)
+                        MessageBox.Show("无法获取最新版本信息（暂无发布）。", "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+
+                string versionStr = tagName.TrimStart('v');
+                if (!Version.TryParse(versionStr, out Version latestVer))
+                {
+                    if (PromptAlways)
+                        MessageBox.Show("当前已是最新版本。", "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+
+                Version currentVer = Assembly.GetExecutingAssembly().GetName().Version;
+                if (latestVer > currentVer)
+                {
+                    string message = "新版本 " + latestVer.ToString() + " 已发布。";
+                    if (!String.IsNullOrEmpty(htmlUrl))
                     {
-                        DialogResult res = MessageBox.Show(message + "\n\nCheck homepage for changelog and download?", "New update available", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+                        DialogResult res = MessageBox.Show(message + "\n\n是否打开 GitHub 发布页查看并下载？", "发现新版本", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
                         if (res == DialogResult.OK)
-                            System.Diagnostics.Process.Start(appInfoURL.InnerText);
+                            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(htmlUrl) { UseShellExecute = true });
                     }
                     else
                     {
-                        MessageBox.Show(message, "New update available", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        MessageBox.Show(message + "\n\n请访问 https://github.com/sunnybug/snaketail-net/releases 下载。", "发现新版本", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
                     return;
                 }
-            }
 
-            if (PromptAlways)
-                MessageBox.Show("Using the latest version", "Check for updates", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                if (PromptAlways)
+                    MessageBox.Show("当前已是最新版本。", "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (WebException ex)
+            {
+                string msg = (ex.Response is HttpWebResponse http && http.StatusCode == System.Net.HttpStatusCode.NotFound)
+                    ? "暂无发布版本。"
+                    : "无法检查更新（网络或服务器错误）。";
+                MessageBox.Show(msg, "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            catch (JsonException)
+            {
+                MessageBox.Show("无法解析更新信息。", "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
         }
     }
 }

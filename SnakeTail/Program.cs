@@ -23,7 +23,8 @@ namespace SnakeTail
     static class Program
     {
         static volatile bool applicationCrashed = false;
-        public static readonly string PadUrl = "http://snakenest.com/snaketail.pad.xml";
+        /// <summary>GitHub Releases API（用于检查更新），与 publish 工作流发布的 tag 一致。</summary>
+        public static readonly string GitHubReleasesApiUrl = "https://api.github.com/repos/sunnybug/snaketail-net/releases/latest";
 
         /// <summary>
         /// The main entry point for the application.

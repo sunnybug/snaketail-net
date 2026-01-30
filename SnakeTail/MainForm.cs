@@ -852,7 +852,6 @@ namespace SnakeTail
                 using(new HourGlass(this))
                 {
                     CheckForUpdates updateChecker = new CheckForUpdates();
-                    updateChecker.PadUrl = Program.PadUrl;
                     updateChecker.PromptAlways = true;
                     updateChecker.Check();
                 }

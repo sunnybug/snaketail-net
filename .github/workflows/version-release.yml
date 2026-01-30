@@ -1,5 +1,4 @@
 # 当 SnakeTail.csproj 中的版本号变动时，自动创建 tag 并触发 Publish 工作流
-# 注意：必须配置仓库 Secret REPO_TOKEN（PAT，需 repo 权限），否则 tag 推送不会触发 Publish
 name: Version Release
 
 on:
@@ -11,7 +10,8 @@ on:
       - 'SnakeTail/SnakeTail.csproj'
 
 permissions:
-  contents: write   # 用于推送 tag 以触发发布
+  contents: write
+  actions: write    # 用于触发 workflow_dispatch
 
 jobs:
   tag-and-trigger:
@@ -21,8 +21,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          # 用 PAT 推送 tag，这样 push 事件才会触发 Publish；GITHUB_TOKEN 触发的 push 不会触发其他 workflow
-          token: ${{ secrets.REPO_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: 读取版本号
         id: version
@@ -57,4 +55,10 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "$TAG" -m "Release $TAG"
           git push origin "$TAG"
-        # 推送使用 checkout 时配置的 token；若使用 REPO_TOKEN，此次 push 会触发 Publish
+
+      - name: 触发 Publish 工作流
+        if: steps.check-tag.outputs.exists != 'true'
+        run: |
+          gh workflow run publish.yml -f tag="v${{ steps.version.outputs.version }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

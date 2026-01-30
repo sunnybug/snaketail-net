@@ -57,3 +57,15 @@ jobs:
           git push origin "$TAG"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 用 GITHUB_TOKEN 推送的 tag 不会触发其他 workflow，需显式触发 Publish
+      - name: 触发 Publish 工作流
+        if: steps.check-tag.outputs.exists != 'true'
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          curl -sS -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/publish.yml/dispatches" \
+            -d "{\"ref\":\"${{ github.ref_name }}\",\"inputs\":{\"tag\":\"$TAG\"}}"

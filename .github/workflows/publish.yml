@@ -6,6 +6,10 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布的 tag（如 v1.9.8），由 Version Release 自动传入'
+        required: false
 
 jobs:
   build:
@@ -13,6 +17,8 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: 安装 WiX Toolset
         run: choco install wixtoolset -y
@@ -35,13 +41,16 @@ jobs:
 
       - name: 打包发布产物
         run: |
-          $version = if ($env:GITHUB_REF -match 'refs/tags/v(.+)') { $Matches[1] } else { (Get-Date -Format 'yyyy.MM.dd.HHmm') }
+          $tag = if ($env:INPUT_TAG) { $env:INPUT_TAG } elseif ($env:GITHUB_REF -match 'refs/tags/(.+)') { $Matches[1] } else { $null }
+          $version = if ($tag -match '^v(.+)$') { $Matches[1] } else { (Get-Date -Format 'yyyy.MM.dd.HHmm') }
           New-Item -ItemType Directory -Force -Path publish
           Copy-Item SnakeTail\bin\Release\net20\* publish\ -Recurse -Force
           Copy-Item SnakeTail.Wix\bin\Release\x86\*.msi publish\ -Force
           Copy-Item SnakeTail.Wix\bin\Release\x64\*.msi publish\ -Force
           Compress-Archive -Path publish\* -DestinationPath "SnakeTail-$version.zip" -Force
           echo "VERSION=$version" >> $env:GITHUB_ENV
+        env:
+          INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || '' }}
         shell: pwsh
 
       - name: 上传构建产物
@@ -55,9 +64,10 @@ jobs:
           if-no-files-found: error
 
       - name: 创建 GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
           files: |
             SnakeTail-*.zip
             SnakeTail.Wix/bin/Release/x86/*.msi

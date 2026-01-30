@@ -1,6 +1,13 @@
 # snaketail-net
 用于监控文本日志文件和 Windows 事件日志的 Tail 工具
 
+## 自动发布（CI）
+修改 `SnakeTail/SnakeTail.csproj` 中的版本号并推送到 `main`/`master` 后，Version Release 工作流会自动创建 tag。**要让 Publish 工作流被触发**，请在仓库 Settings → Secrets and variables → Actions 中新增 Secret：
+- **名称**：`REPO_TOKEN`
+- **值**：一个 Personal Access Token（需勾选 `repo` 权限）
+
+未配置 `REPO_TOKEN` 时，tag 仍会由 `GITHUB_TOKEN` 创建并推送，但 GitHub 不会因该 push 触发 Publish；可改在 Actions 页手动运行 Publish 并输入 tag。
+
 - 监控"大型"文本日志文件
 - 监控 Windows 事件日志（无需管理员权限）
 - 支持多种窗口模式（MDI、标签页、浮动窗口）

@@ -1,4 +1,4 @@
-# 发布 SnakeTail：在打 tag 时构建并创建 GitHub Release，上传 exe 与 msi 安装包
+# 发布 SnakeTail：在打 tag 时构建并创建 GitHub Release，仅上传 portable x64 与源码 zip
 name: Publish
 
 on:
@@ -23,35 +23,45 @@ jobs:
       - name: 设置 MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: 安装 WiX Toolset
-        run: choco install wixtoolset -y
-        shell: pwsh
-
       - name: 还原 NuGet 包
         run: dotnet restore SnakeTail.sln
         shell: pwsh
 
-      - name: 构建 SnakeTail
-        run: msbuild SnakeTail\SnakeTail.csproj '/p:Configuration=Release;Platform=AnyCPU' '/t:Clean;Rebuild'
+      - name: 构建 SnakeTail (portable x64)
+        run: msbuild SnakeTail\SnakeTail.csproj '/p:Configuration=Release;Platform=x64;PlatformTarget=x64' '/t:Clean;Rebuild'
         shell: pwsh
 
-      - name: 构建 WiX 安装包 (x86)
-        run: msbuild SnakeTail.Wix\SnakeTail.Wix.wixproj '/p:Configuration=Release;Platform=AnyCPU;TargetPlatform=x86'
+      - name: 定位 x64 构建输出目录
+        id: outdir
+        run: |
+          $candidates = @(
+            'SnakeTail\bin\Release\net20',
+            'SnakeTail\bin\x64\Release\net20'
+          )
+          $outDir = $null
+          foreach ($d in $candidates) {
+            if (Test-Path (Join-Path $d 'SnakeTail.exe')) {
+              $outDir = $d
+              break
+            }
+          }
+          if (-not $outDir) {
+            Write-Host "SnakeTail.exe 未找到，已检查: $($candidates -join ', ')"
+            Get-ChildItem -Path SnakeTail\bin -Recurse -Filter 'SnakeTail.exe' -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "发现: $($_.FullName)" }
+            exit 1
+          }
+          Write-Host "OUTDIR=$outDir" >> $env:GITHUB_ENV
+          echo "path=$outDir" >> $env:GITHUB_OUTPUT
         shell: pwsh
 
-      - name: 构建 WiX 安装包 (x64)
-        run: msbuild SnakeTail.Wix\SnakeTail.Wix.wixproj '/p:Configuration=Release;Platform=AnyCPU;TargetPlatform=x64'
-        shell: pwsh
-
-      - name: 打包发布产物
+      - name: 打包发布产物与源码
         run: |
           $tag = if ($env:INPUT_TAG) { $env:INPUT_TAG } elseif ($env:GITHUB_REF -match 'refs/tags/(.+)') { $Matches[1] } else { $null }
           $version = if ($tag -match '^v(.+)$') { $Matches[1] } else { (Get-Date -Format 'yyyy.MM.dd.HHmm') }
           New-Item -ItemType Directory -Force -Path publish
-          Copy-Item SnakeTail\bin\Release\net20\* publish\ -Recurse -Force
-          Copy-Item SnakeTail.Wix\bin\Release\x86\*.msi publish\ -Force
-          Copy-Item SnakeTail.Wix\bin\Release\x64\*.msi publish\ -Force
-          Compress-Archive -Path publish\* -DestinationPath "SnakeTail-$version.zip" -Force
+          Copy-Item $env:OUTDIR\* publish\ -Recurse -Force
+          Compress-Archive -Path publish\* -DestinationPath "SnakeTail-$version-portable-x64.zip" -Force
+          git archive -o "SnakeTail-$version-src.zip" HEAD
           echo "VERSION=$version" >> $env:GITHUB_ENV
         env:
           INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || '' }}
@@ -62,9 +72,8 @@ jobs:
         with:
           name: SnakeTail-build
           path: |
-            SnakeTail-*.zip
-            SnakeTail.Wix/bin/Release/x86/*.msi
-            SnakeTail.Wix/bin/Release/x64/*.msi
+            SnakeTail-*-portable-x64.zip
+            SnakeTail-*-src.zip
           if-no-files-found: error
 
       - name: 创建 GitHub Release
@@ -73,9 +82,8 @@ jobs:
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
           files: |
-            SnakeTail-*.zip
-            SnakeTail.Wix/bin/Release/x86/*.msi
-            SnakeTail.Wix/bin/Release/x64/*.msi
+            SnakeTail-*-portable-x64.zip
+            SnakeTail-*-src.zip
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

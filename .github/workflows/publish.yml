@@ -50,7 +50,7 @@ jobs:
             Get-ChildItem -Path SnakeTail\bin -Recurse -Filter 'SnakeTail.exe' -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "发现: $($_.FullName)" }
             exit 1
           }
-          Write-Host "OUTDIR=$outDir" >> $env:GITHUB_ENV
+          "OUTDIR=$outDir" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
           echo "path=$outDir" >> $env:GITHUB_OUTPUT
         shell: pwsh
 
@@ -58,11 +58,15 @@ jobs:
         run: |
           $tag = if ($env:INPUT_TAG) { $env:INPUT_TAG } elseif ($env:GITHUB_REF -match 'refs/tags/(.+)') { $Matches[1] } else { $null }
           $version = if ($tag -match '^v(.+)$') { $Matches[1] } else { (Get-Date -Format 'yyyy.MM.dd.HHmm') }
+          if (-not $env:OUTDIR -or -not (Test-Path (Join-Path $env:OUTDIR 'SnakeTail.exe'))) {
+            Write-Error "OUTDIR 未设置或无效（缺少 SnakeTail.exe），请检查上一步「定位 x64 构建输出目录」"
+            exit 1
+          }
           New-Item -ItemType Directory -Force -Path publish
           Copy-Item $env:OUTDIR\* publish\ -Recurse -Force
           Compress-Archive -Path publish\* -DestinationPath "SnakeTail-$version-portable-x64.zip" -Force
           git archive -o "SnakeTail-$version-src.zip" HEAD
-          echo "VERSION=$version" >> $env:GITHUB_ENV
+          "VERSION=$version" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
         env:
           INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || '' }}
         shell: pwsh

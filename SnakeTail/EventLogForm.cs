@@ -2,12 +2,12 @@
 /* SnakeTail is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, version 3 of the License.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
@@ -712,7 +712,7 @@ namespace SnakeTail
                     _lastEventLogEntry = entry.Index;
                     return;
                 }
-              
+
                 try
                 {
                     // List count has changed, need to re-position TopItem
@@ -831,7 +831,7 @@ namespace SnakeTail
             }
         }
 
-        public delegate void UpdateAction(); 
+        public delegate void UpdateAction();
 
         private void EventListView_RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs e)
         {
@@ -1093,7 +1093,7 @@ namespace SnakeTail
                 _filterEventLogTimer.Enabled = true;
             }
 
-            // Allow the _eventLog to notify about new 
+            // Allow the _eventLog to notify about new
             _eventLog.EnableRaisingEvents = true;
         }
 
@@ -1119,9 +1119,32 @@ namespace SnakeTail
         private void EventLogForm_DragEnter(object sender, DragEventArgs e)
         {
             if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            {
+                try
+                {
+                    // 尝试获取文件列表以验证权限
+                    Array array = e.Data.GetData(DataFormats.FileDrop) as Array;
+                    if (array != null && array.Length > 0)
+                    {
+                        // 检查第一个文件是否可访问（不实际打开，只检查路径）
+                        string firstFile = array.GetValue(0).ToString();
+                        if (!string.IsNullOrEmpty(firstFile) && System.IO.Path.IsPathRooted(firstFile))
+                        {
+                            e.Effect = DragDropEffects.Copy;
+                            return;
+                        }
+                    }
+                }
+                catch
+                {
+                    // 如果权限检查失败，仍然允许拖拽，让 DragDrop 处理错误
+                }
                 e.Effect = DragDropEffects.Copy;
+            }
             else
+            {
                 e.Effect = DragDropEffects.None;
+            }
         }
 
         private void EventLogForm_DragDrop(object sender, DragEventArgs e)
@@ -1160,11 +1183,92 @@ namespace SnakeTail
             // The solution was to create a thread, that slept for 100 ms and then invoked the wanted method. If I removed the sleep from the new thread,
             // then Windows Explorer would lock again. Very strange indeed.
             System.Threading.Thread.Sleep(100);
-            this.BeginInvoke(new Action<string[]>(delegate(string[] filenames) 
-            { 
+            this.BeginInvoke(new Action<string[]>(delegate(string[] filenames)
+            {
                 if (MainForm.Instance != null)
                 {
-                    MainForm.Instance.OpenFileSelection(filenames);
+                    try
+                    {
+                        // 验证文件路径和权限
+                        List<string> validFiles = new List<string>();
+                        List<string> invalidFiles = new List<string>();
+
+                        foreach (string filename in filenames)
+                        {
+                            try
+                            {
+                                if (string.IsNullOrEmpty(filename))
+                                    continue;
+
+                                // 检查路径是否有效
+                                if (!System.IO.Path.IsPathRooted(filename))
+                                {
+                                    invalidFiles.Add(filename);
+                                    continue;
+                                }
+
+                                // 尝试访问文件信息以验证权限
+                                // 对于目录，检查是否存在
+                                if (System.IO.Directory.Exists(filename))
+                                {
+                                    // 目录暂时不支持，跳过
+                                    continue;
+                                }
+
+                                // 对于文件，检查是否存在或是否可以访问
+                                if (System.IO.File.Exists(filename))
+                                {
+                                    // 尝试获取文件信息以验证权限
+                                    System.IO.FileInfo fileInfo = new System.IO.FileInfo(filename);
+                                    // 如果文件存在但无法访问，会在 OpenFileSelection 中处理
+                                    validFiles.Add(filename);
+                                }
+                                else
+                                {
+                                    // 文件不存在，但可能是新文件或需要特殊权限
+                                    // 尝试检查父目录权限
+                                    string dir = System.IO.Path.GetDirectoryName(filename);
+                                    if (!string.IsNullOrEmpty(dir) && System.IO.Directory.Exists(dir))
+                                    {
+                                        validFiles.Add(filename);
+                                    }
+                                    else
+                                    {
+                                        invalidFiles.Add(filename);
+                                    }
+                                }
+                            }
+                            catch (System.UnauthorizedAccessException)
+                            {
+                                invalidFiles.Add(filename + " (权限不足)");
+                            }
+                            catch (System.Security.SecurityException)
+                            {
+                                invalidFiles.Add(filename + " (安全权限不足)");
+                            }
+                            catch (Exception ex)
+                            {
+                                invalidFiles.Add(filename + " (" + ex.Message + ")");
+                            }
+                        }
+
+                        // 打开有效的文件
+                        if (validFiles.Count > 0)
+                        {
+                            MainForm.Instance.OpenFileSelection(validFiles.ToArray());
+                        }
+
+                        // 显示无效文件的错误消息
+                        if (invalidFiles.Count > 0)
+                        {
+                            string errorMsg = "以下文件无法打开：\n\n" + string.Join("\n", invalidFiles.ToArray());
+                            MessageBox.Show(this, errorMsg, "文件拖拽失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show(this, "打开文件时发生错误：\n\n" + ex.Message, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
                 }
             }), new object[] { param });
         }
@@ -1429,7 +1533,7 @@ namespace SnakeTail
                         }
                     }
                 }
-            }            
+            }
         }
 
         public void Dispose()
@@ -1499,7 +1603,7 @@ namespace SnakeTail
                         disposeReader.Dispose();
                 }
             }
-            
+
             if (eventMessage == null)
             {
                 eventMessage = GetEventLogItemMessage(eventLog.MachineName, eventLog.LogDisplayName, (uint)eventRecordId);

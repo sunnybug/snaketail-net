@@ -20,6 +20,9 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
+      - name: 设置 MSBuild
+        uses: microsoft/setup-msbuild@v2
+
       - name: 安装 WiX Toolset
         run: choco install wixtoolset -y
         shell: pwsh

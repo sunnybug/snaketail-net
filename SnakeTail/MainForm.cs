@@ -23,6 +23,8 @@ using System.Windows.Forms;
 using System.Xml;
 using System.Xml.Serialization;
 
+using SnakeTail.Storage;
+
 namespace SnakeTail
 {
     partial class MainForm : Form
@@ -35,9 +37,8 @@ namespace SnakeTail
         private TailFileConfig _defaultTailConfig = null;
         private string _currenTailConfig = null;
 
-        private string _mruRegKey = "SOFTWARE\\SnakeNest.com\\SnakeTail\\MRU";
         private JWC.MruStripMenu _mruMenu;
-        private MruSqliteStorage _mruSqliteStorage;
+        private SnakeTailStorage _storage;
 
         public MainForm()
         {
@@ -53,42 +54,24 @@ namespace SnakeTail
             _MDITabControl.ImageList.Images.Add(new Bitmap(Properties.Resources.GreenBulletIcon.ToBitmap()));
             _MDITabControl.ImageList.Images.Add(new Bitmap(Properties.Resources.YellowBulletIcon.ToBitmap()));
 
-            // 初始化 SQLite 存储
+            // 最近打开文件仅使用 xSnakeTail.db，不使用注册表
+            _mruMenu = new JWC.MruStripMenuInline(recentFilesToolStripMenuItem, recentFile1ToolStripMenuItem, new JWC.MruStripMenu.ClickedHandler(OnMruFile), null, false, 10);
             try
             {
-                _mruSqliteStorage = new MruSqliteStorage(null);
-
-                // 从 SQLite 加载最近文件
-                List<string> recentFiles = _mruSqliteStorage.GetRecentFiles(10);
-
-                // 创建 MRU 菜单（不使用注册表）
-                _mruMenu = new JWC.MruStripMenuInline(recentFilesToolStripMenuItem, recentFile1ToolStripMenuItem, new JWC.MruStripMenu.ClickedHandler(OnMruFile), null, false, 10);
-
-                // 将 SQLite 中的文件添加到菜单
-                foreach (string file in recentFiles)
+                _storage = new SnakeTailStorage(null);
+                if (_storage.IsAvailable)
                 {
-                    _mruMenu.AddFile(file);
+                    List<string> recentFiles = _storage.GetRecentFiles(10);
+                    foreach (string file in recentFiles)
+                    {
+                        _mruMenu.AddFile(file);
+                    }
                 }
-
-                // 现在使用 SQLite 存储，不再需要注册表选项
             }
             catch (Exception ex)
             {
-                // 如果 SQLite 初始化失败，回退到注册表模式
-                bool loadFromRegistry = false;
-                try
-                {
-                    Microsoft.Win32.RegistryKey regKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(_mruRegKey);
-                    if (regKey != null)
-                        loadFromRegistry = true;
-                }
-                catch
-                {
-                }
-
-                _mruMenu = new JWC.MruStripMenuInline(recentFilesToolStripMenuItem, recentFile1ToolStripMenuItem, new JWC.MruStripMenu.ClickedHandler(OnMruFile), _mruRegKey, loadFromRegistry, 10);
-
-                MessageBox.Show(this, "无法初始化 SQLite 数据库，将使用注册表存储最近文件。\n\n错误: " + ex.Message,
+                _storage = null;
+                MessageBox.Show(this, "无法初始化 SQLite 数据库，最近打开的文件列表将无法保存。\n\n错误: " + ex.Message,
                     "警告", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
@@ -132,14 +115,10 @@ namespace SnakeTail
             }
             else
             {
-                // 如果没有命令行参数，尝试自动加载上次保存的会话
+                // 如果没有命令行参数，从 xSnakeTail.db 加载上次会话
                 try
                 {
-                    string defaultPath = GetDefaultConfigPath();
-                    if (!string.IsNullOrEmpty(defaultPath) && File.Exists(defaultPath))
-                    {
-                        LoadSession(defaultPath);
-                    }
+                    LoadSessionFromDb();
                 }
                 catch
                 {
@@ -285,45 +264,18 @@ namespace SnakeTail
                 {
                     _mruMenu.RemoveFile(number);
                 }
-                if (_mruSqliteStorage != null)
+                if (_storage != null)
                 {
-                    _mruSqliteStorage.RemoveFile(filename);
+                    _storage.RemoveFile(filename);
                 }
             }
-        }
-
-        private static string GetDefaultConfigPath()
-        {
-            // Attempt to load default session configuration from these locations
-            // 1. SnakeTail.xml in application directory
-            // 2. SnakeTail.xml in current user roaming app directory
-            // 3. SnakeTail.xml in current user local app directory
-            // 4. SnakeTail.xml in common app directory
-            string appPath = Path.GetDirectoryName(Application.ExecutablePath) + "\\SnakeTail.xml";
-            string roamingPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData) + "\\SnakeTail\\SnakeTail.xml";
-            string localPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "\\SnakeTail\\SnakeTail.xml";
-            string commonPath = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData) + "\\SnakeTail\\SnakeTail.xml";
-            if (File.Exists(appPath))
-                return appPath;
-            else if (File.Exists(roamingPath))
-                return roamingPath;
-            else if (File.Exists(localPath))
-                return localPath;
-            else if (File.Exists(commonPath))
-                return commonPath;
-            else
-                return string.Empty;
         }
 
         public int OpenFileSelection(string[] filenames)
         {
             if (_defaultTailConfig == null)
             {
-                TailConfig tailConfig = null;
-                string defaultPath = GetDefaultConfigPath();
-                if (!string.IsNullOrEmpty(defaultPath))
-                    tailConfig = LoadSessionFile(defaultPath);
-
+                TailConfig tailConfig = _storage?.LoadDefaultSession();
                 if (tailConfig != null && tailConfig.TailFiles.Count > 0)
                 {
                     _defaultTailConfig = tailConfig.TailFiles[0];
@@ -383,9 +335,9 @@ namespace SnakeTail
                     }
 
                     // 保存到 SQLite（如果可用）
-                    if (_mruSqliteStorage != null)
+                    if (_storage != null)
                     {
-                        _mruSqliteStorage.AddFile(fullPath);
+                        _storage.AddFile(fullPath);
                     }
                 }
                 catch
@@ -590,9 +542,9 @@ namespace SnakeTail
                 {
                     _mruMenu.AddFile(filepath);
                 }
-                if (_mruSqliteStorage != null)
+                if (_storage != null)
                 {
-                    _mruSqliteStorage.AddFile(filepath);
+                    _storage.AddFile(filepath);
                 }
             }
             else if (_currenTailConfig != filepath)
@@ -601,9 +553,9 @@ namespace SnakeTail
                 {
                     _mruMenu.RenameFile(_currenTailConfig, filepath);
                 }
-                if (_mruSqliteStorage != null)
+                if (_storage != null)
                 {
-                    _mruSqliteStorage.RenameFile(_currenTailConfig, filepath);
+                    _storage.RenameFile(_currenTailConfig, filepath);
                 }
             }
 
@@ -612,22 +564,13 @@ namespace SnakeTail
             UpdateTitle();
         }
 
+        /// <summary>
+        /// 将会话保存到指定 XML 文件（仅用于“另存为”）
+        /// </summary>
         public void SaveConfig(TailConfig tailConfig, string filepath)
         {
             if (string.IsNullOrEmpty(filepath))
-            {
-                string defaultPath = GetDefaultConfigPath();
-                if (string.IsNullOrEmpty(defaultPath))
-                {
-                    defaultPath = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData) + "\\SnakeTail\\";
-                    if (!Directory.Exists(defaultPath))
-                        Directory.CreateDirectory(defaultPath);
-
-                    defaultPath += "SnakeTail.xml";
-                }
-
-                filepath = defaultPath;
-            }
+                return;
 
             XmlSerializer serializer = new XmlSerializer(typeof(TailConfig));
             try
@@ -640,9 +583,9 @@ namespace SnakeTail
                     serializer.Serialize(writer, tailConfig, xmlnsEmpty);
                 }
 
-                _defaultTailConfig = null;  // Force reload incase we saved a new default config
+                _defaultTailConfig = null;
             }
-            catch(System.Exception ex)
+            catch (System.Exception ex)
             {
                 string errorMsg = ex.Message;
                 while (ex.InnerException != null)
@@ -680,20 +623,92 @@ namespace SnakeTail
             }
         }
 
-        private bool LoadSession(string filepath)
+        private bool LoadSession(string filepath, bool addToMru = true)
         {
             TailConfig tailConfig = LoadSessionFile(filepath);
             if (tailConfig == null)
                 return false;
 
-            if (_mruMenu != null)
+            if (addToMru)
             {
-                _mruMenu.AddFile(filepath);
+                if (_mruMenu != null)
+                    _mruMenu.AddFile(filepath);
+                if (_storage != null)
+                    _storage.AddFile(filepath);
             }
-            if (_mruSqliteStorage != null)
+
+            return LoadSessionWithConfig(tailConfig, Path.GetDirectoryName(filepath));
+        }
+
+        /// <summary>
+        /// 从 xSnakeTail.db 加载上次会话
+        /// </summary>
+        private void LoadSessionFromDb()
+        {
+            TailConfig tailConfig = _storage?.LoadDefaultSession();
+            if (tailConfig == null)
+                return;
+
+            string basePath = Path.GetDirectoryName(Application.ExecutablePath) ?? "";
+            LoadSessionWithConfig(tailConfig, basePath);
+        }
+
+        /// <summary>
+        /// 将会话保存到 xSnakeTail.db
+        /// </summary>
+        private void SaveSessionToDb()
+        {
+            TailConfig tailConfig = BuildCurrentTailConfig();
+            if (tailConfig == null || tailConfig.TailFiles.Count == 0)
+                return;
+
+            _storage?.SaveDefaultSession(tailConfig);
+        }
+
+        private TailConfig BuildCurrentTailConfig()
+        {
+            TailConfig tailConfig = new TailConfig();
+            if (_MDITabControl != null && _MDITabControl.Visible)
+                tailConfig.SelectedTab = _MDITabControl.SelectedIndex;
+            else
+                tailConfig.SelectedTab = -1;
+            tailConfig.WindowSize = Size;
+            tailConfig.WindowPosition = DesktopLocation;
+            tailConfig.MinimizedToTray = _trayIcon != null && _trayIcon.Visible;
+            tailConfig.AlwaysOnTop = TopMost;
+
+            List<Form> childForms = new List<Form>();
+            if (_MDITabControl != null && !_MDITabControl.IsDisposed)
             {
-                _mruSqliteStorage.AddFile(filepath);
+                foreach (TabPage tagPage in _MDITabControl.TabPages)
+                {
+                    Form tailForm = tagPage.Tag as Form;
+                    if (tailForm != null)
+                        childForms.Add(tailForm);
+                }
             }
+            foreach (Form childForm in Application.OpenForms)
+            {
+                if (childForms.IndexOf(childForm) == -1)
+                    childForms.Add(childForm);
+            }
+            foreach (Form childForm in childForms)
+            {
+                ITailForm tailForm = childForm as ITailForm;
+                if (tailForm != null)
+                {
+                    TailFileConfig tailFile = new TailFileConfig();
+                    tailForm.SaveConfig(tailFile);
+                    tailConfig.TailFiles.Add(tailFile);
+                }
+            }
+            return tailConfig;
+        }
+
+        private bool LoadSessionWithConfig(TailConfig tailConfig, string configBasePath)
+        {
+            if (tailConfig == null)
+                return false;
 
             if (!tailConfig.MinimizedToTray)
             {
@@ -704,14 +719,12 @@ namespace SnakeTail
             UpdateTitle();
 
             List<string> eventLogFiles = EventLogForm.GetEventLogFiles();
-
             Application.DoEvents();
 
             foreach (TailFileConfig tailFile in tailConfig.TailFiles)
             {
                 Form mdiForm = null;
-
-                int index = eventLogFiles.FindIndex(delegate(string arrItem) { return arrItem.Equals(tailFile.FilePath); });
+                int index = eventLogFiles.FindIndex(delegate (string arrItem) { return arrItem.Equals(tailFile.FilePath); });
                 if (index >= 0)
                     mdiForm = new EventLogForm();
                 else
@@ -720,8 +733,6 @@ namespace SnakeTail
                 if (mdiForm != null)
                 {
                     ITailForm tailForm = mdiForm as ITailForm;
-                    string tailConfigPath = Path.GetDirectoryName(filepath);
-
                     mdiForm.Text = tailFile.Title;
                     if (!tailFile.Modeless)
                     {
@@ -729,7 +740,7 @@ namespace SnakeTail
                         mdiForm.ShowInTaskbar = false;
                         AddMdiChildTab(mdiForm);
                         if (tailForm != null)
-                            tailForm.LoadConfig(tailFile, tailConfigPath);
+                            tailForm.LoadConfig(tailFile, configBasePath);
                         if (mdiForm.IsDisposed)
                         {
                             _MDITabControl.TabPages.Remove(mdiForm.Tag as TabPage);
@@ -749,11 +760,8 @@ namespace SnakeTail
                             mdiForm.WindowState = tailFile.WindowState;
                     }
 
-                    if (tailFile.Modeless)
-                    {
-                        if (tailForm != null)
-                            tailForm.LoadConfig(tailFile, tailConfigPath);
-                    }
+                    if (tailFile.Modeless && tailForm != null)
+                        tailForm.LoadConfig(tailFile, configBasePath);
                 }
                 Application.DoEvents();
             }
@@ -762,7 +770,6 @@ namespace SnakeTail
             {
                 foreach (Form childForm in MdiChildren)
                     childForm.WindowState = FormWindowState.Minimized;
-
                 _MDITabControl.SelectedIndex = tailConfig.SelectedTab;
                 _MDITabControl.Visible = true;
                 (_MDITabControl.SelectedTab.Tag as Form).WindowState = FormWindowState.Maximized;
@@ -1090,9 +1097,9 @@ namespace SnakeTail
             {
                 _mruMenu.RemoveAll();
             }
-            if (_mruSqliteStorage != null)
+            if (_storage != null)
             {
-                _mruSqliteStorage.ClearAll();
+                _storage.ClearAllRecentFiles();
             }
         }
 
@@ -1101,19 +1108,9 @@ namespace SnakeTail
         {
             try
             {
-                // 自动保存当前会话到默认位置
+                // 自动保存当前会话到 xSnakeTail.db（不再写入 XML）
                 try
                 {
-                    string defaultPath = GetDefaultConfigPath();
-                    if (string.IsNullOrEmpty(defaultPath))
-                    {
-                        defaultPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "\\SnakeTail\\";
-                        if (!Directory.Exists(defaultPath))
-                            Directory.CreateDirectory(defaultPath);
-                        defaultPath += "SnakeTail.xml";
-                    }
-
-                    // 只有在有打开的文件时才保存会话
                     bool hasOpenFiles = false;
                     foreach (Form childForm in Application.OpenForms)
                     {
@@ -1124,11 +1121,8 @@ namespace SnakeTail
                             break;
                         }
                     }
-
                     if (hasOpenFiles)
-                    {
-                        SaveSession(defaultPath);
-                    }
+                        SaveSessionToDb();
                 }
                 catch
                 {
@@ -1136,11 +1130,11 @@ namespace SnakeTail
                 }
 
                 // 清理不存在的文件记录并释放 SQLite 资源
-                if (_mruSqliteStorage != null)
+                if (_storage != null)
                 {
                     try
                     {
-                        _mruSqliteStorage.CleanupNonExistentFiles();
+                        _storage.CleanupNonExistentFiles();
                     }
                     catch
                     {
@@ -1149,7 +1143,7 @@ namespace SnakeTail
 
                     try
                     {
-                        _mruSqliteStorage.Dispose();
+                        _storage.Dispose();
                     }
                     catch
                     {
@@ -1157,7 +1151,7 @@ namespace SnakeTail
                     }
                     finally
                     {
-                        _mruSqliteStorage = null;
+                        _storage = null;
                     }
                 }
             }

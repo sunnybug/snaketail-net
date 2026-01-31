@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Windows.Forms;
 using System.Threading;
-using Microsoft.Win32;
 
 namespace JWC
 {
@@ -11,8 +10,7 @@ namespace JWC
 	/// </summary>
 	/// <remarks>This class shows the MRU list in a popup menu. To display
 	/// the MRU list "inline" use <see labelName="MruMenuInline" />.
-	/// <para>The class will optionally load the last set of files from the registry
-	/// on construction and store them when instructed by the main program.</para>
+	/// <para>MRU list is persisted by the main program (e.g. SQLite); this class does not use the registry.</para>
 	/// <para>Internally, this class uses zero-based numbering for the items.
 	/// The displayed numbers, however, will start with one.</para></remarks>
 	public class MruStripMenu : IDisposable
@@ -108,15 +106,9 @@ namespace JWC
 			this.recentFileMenuItem.Checked = false;
 			this.recentFileMenuItem.Enabled = false;
 
-            this.maxEntries = maxEntries > 16 ? 16 : maxEntries;
+			this.maxEntries = maxEntries > 16 ? 16 : maxEntries;
 			this.clickedHandler = clickedHandler;
-
-			if (registryKeyName != null)
-			{
-				RegistryKeyName = registryKeyName;
-				if (loadFromRegistry)
-					LoadFromRegistry();
-			}
+			// 不使用注册表，持久化由主程序（如 SQLite）负责
 		}
 
 		#endregion
@@ -641,98 +633,32 @@ namespace JWC
 
 		#endregion
 
-		#region Registry Methods
+		#region Registry Methods (no-op: 不使用注册表，禁止写入)
 
 		public string RegistryKeyName
 		{
-			get
-			{
-				return registryKeyName;
-			}
-			set
-			{
-				if (mruStripMutex != null)
-					mruStripMutex.Close();
-
-				registryKeyName = value.Trim();
-				if (registryKeyName.Length == 0)
-				{
-					registryKeyName = null;
-					mruStripMutex = null;
-				}
-				else
-				{
-					string mutexName = registryKeyName.Replace('\\', '_').Replace('/', '_') + "Mutex";
-					mruStripMutex = new Mutex(false, mutexName);
-				}
-			}
+			get { return registryKeyName; }
+			set { registryKeyName = string.IsNullOrEmpty(value) ? null : value.Trim(); }
 		}
 
 		public void LoadFromRegistry(string keyName)
 		{
-			RegistryKeyName = keyName;
-			LoadFromRegistry();
+			// 不使用注册表，空实现
 		}
 
 		public void LoadFromRegistry()
 		{
-			if (registryKeyName != null)
-			{
-				mruStripMutex.WaitOne();
-
-				RemoveAll();
-
-				RegistryKey regKey = Registry.CurrentUser.OpenSubKey(registryKeyName);
-				if (regKey != null)
-				{
-					maxEntries = (int)regKey.GetValue("max", maxEntries);
-
-					for (int number = maxEntries; number > 0; number--)
-					{
-						string filename = (string)regKey.GetValue("File" + number.ToString());
-						if (filename != null)
-							AddFile(filename);
-					}
-
-					regKey.Close();
-				}
-				mruStripMutex.ReleaseMutex();
-			}
+			// 不使用注册表，空实现
 		}
 
 		public void SaveToRegistry(string keyName)
 		{
-			RegistryKeyName = keyName;
-			SaveToRegistry();
+			// 不使用注册表，禁止写入
 		}
 
 		public void SaveToRegistry()
 		{
-			if (registryKeyName != null)
-			{
-				mruStripMutex.WaitOne();
-
-				RegistryKey regKey = Registry.CurrentUser.CreateSubKey(registryKeyName);
-				if (regKey != null)
-				{
-					regKey.SetValue("max", maxEntries);
-
-					int number = 1;
-					int i = StartIndex;
-					for (; i < EndIndex; i++, number++)
-					{
-						regKey.SetValue("File" + number.ToString(), ((ToolStripMenuItem)MenuItems[i]).Tag as string);
-					}
-
-					for (; number <= 16; number++)
-					{
-						regKey.DeleteValue("File" + number.ToString(), false);
-					}
-
-					regKey.Close();
-				}
-				mruStripMutex.ReleaseMutex();
-			}
+			// 不使用注册表，禁止写入
 		}
 
         #region IDisposable Support

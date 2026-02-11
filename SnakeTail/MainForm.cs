@@ -39,6 +39,8 @@ namespace SnakeTail
 
         private JWC.MruStripMenu _mruMenu;
         private SnakeTailStorage _storage;
+        /// <summary>已监控的文件夹路径 -> FileSystemWatcher，用于“打开文件夹并监控”</summary>
+        private Dictionary<string, FileSystemWatcher> _folderWatchers = new Dictionary<string, FileSystemWatcher>(StringComparer.OrdinalIgnoreCase);
 
         public MainForm()
         {
@@ -94,6 +96,7 @@ namespace SnakeTail
 
         private void MainForm_Shown(object sender, EventArgs e)
         {
+            Program.StartSingleInstancePipeServer();
             string[] args = Environment.GetCommandLineArgs();
             if (args.Length > 1)
             {
@@ -249,6 +252,100 @@ namespace SnakeTail
             OpenFileSelection(fileDialog.FileNames);
         }
 
+        private void openFolderWatchToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            using (FolderBrowserDialog dlg = new FolderBrowserDialog())
+            {
+                dlg.Description = "选择要监控的文件夹，该文件夹内新产生的文件将自动在新标签页中打开";
+                dlg.UseDescriptionForTitle = true;
+                if (dlg.ShowDialog(this) != DialogResult.OK)
+                    return;
+
+                string folderPath = dlg.SelectedPath;
+                if (string.IsNullOrEmpty(folderPath) || !Directory.Exists(folderPath))
+                    return;
+
+                string normalizedPath = Path.GetFullPath(folderPath);
+                lock (_folderWatchers)
+                {
+                    if (_folderWatchers.ContainsKey(normalizedPath))
+                    {
+                        SetStatusBar("已在监控: " + normalizedPath, 0, 0);
+                        return;
+                    }
+                }
+
+                try
+                {
+                    // 先打开目录中已有文件（仅顶层，不递归）
+                    string[] existingFiles = null;
+                    try
+                    {
+                        existingFiles = Directory.GetFiles(normalizedPath, "*.*");
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show(this, "无法读取目录内文件列表：\n\n" + ex.Message, "打开文件夹并监控", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+                    if (existingFiles != null && existingFiles.Length > 0)
+                    {
+                        SetStatusBar("正在打开 " + existingFiles.Length + " 个文件...", 0, 0);
+                        Application.DoEvents();
+                        int opened = OpenFileSelection(existingFiles);
+                        SetStatusBar(opened > 0 ? "已打开 " + opened + " 个文件，并开始监控新文件" : "开始监控文件夹", 0, 0);
+                    }
+
+                    var watcher = new FileSystemWatcher(normalizedPath);
+                    watcher.NotifyFilter = NotifyFilters.FileName | NotifyFilters.CreationTime;
+                    watcher.Created += FolderWatcher_Created;
+                    watcher.EnableRaisingEvents = true;
+
+                    lock (_folderWatchers)
+                    {
+                        _folderWatchers[normalizedPath] = watcher;
+                    }
+                    if (existingFiles == null || existingFiles.Length == 0)
+                        SetStatusBar("正在监控文件夹: " + normalizedPath, 0, 0);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, "无法监控该文件夹：\n\n" + ex.Message, "打开文件夹并监控", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            }
+        }
+
+        private void FolderWatcher_Created(object sender, FileSystemEventArgs e)
+        {
+            string fullPath = e.FullPath;
+            try
+            {
+                if (Directory.Exists(fullPath))
+                    return;
+            }
+            catch
+            {
+                return;
+            }
+
+            if (IsDisposed || !IsHandleCreated)
+                return;
+            BeginInvoke(new Action<string>(path =>
+            {
+                try
+                {
+                    if (IsDisposed || !IsHandleCreated)
+                        return;
+                    // 若该文件已在某 Tab 打开则激活该 Tab，否则新建 Tab
+                    OpenFileOrActivateTab(new[] { path });
+                }
+                catch (Exception ex)
+                {
+                    SetStatusBar("打开新文件失败: " + ex.Message, 0, 0);
+                }
+            }), fullPath);
+        }
+
         private void OnMruFile(int number, String filename)
         {
             bool openedFile = false;
@@ -350,6 +447,79 @@ namespace SnakeTail
                 Application.DoEvents();
             }
             return filesOpened;
+        }
+
+        /// <summary>
+        /// 若某路径已在当前窗口的某个 Tab（TailForm）中打开则激活该 Tab，否则新建 Tab 打开。
+        /// 用于单实例：第二进程通过管道传来路径时调用。
+        /// </summary>
+        public void OpenFileOrActivateTab(string[] filenames)
+        {
+            if (filenames == null || filenames.Length == 0)
+                return;
+            var toOpen = new List<string>();
+            foreach (string rawPath in filenames)
+            {
+                if (string.IsNullOrWhiteSpace(rawPath))
+                    continue;
+                string path;
+                try
+                {
+                    path = Path.GetFullPath(rawPath.Trim());
+                }
+                catch
+                {
+                    toOpen.Add(rawPath.Trim());
+                    continue;
+                }
+                if (path.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
+                {
+                    LoadSession(path);
+                    continue;
+                }
+                bool found = false;
+                foreach (Form child in MdiChildren)
+                {
+                    TailForm tailForm = child as TailForm;
+                    if (tailForm == null || string.IsNullOrEmpty(tailForm.CurrentFilePathAbsolute))
+                        continue;
+                    if (string.Equals(tailForm.CurrentFilePathAbsolute, path, StringComparison.OrdinalIgnoreCase))
+                    {
+                        TabPage tp = child.Tag as TabPage;
+                        if (tp != null && _MDITabControl.TabPages.Contains(tp))
+                        {
+                            _MDITabControl.SelectedTab = tp;
+                            ActivateMdiChild(child);
+                        }
+                        else
+                            ActivateMdiChild(child);
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found)
+                    toOpen.Add(path);
+            }
+            if (toOpen.Count > 0)
+                OpenFileSelection(toOpen.ToArray());
+        }
+
+        /// <summary>由单实例管道线程调用：将主窗口置前并打开或激活指定文件。</summary>
+        public void BringToFrontAndOpenOrActivateTab(string[] filenames)
+        {
+            if (IsDisposed || !IsHandleCreated)
+                return;
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action<string[]>(BringToFrontAndOpenOrActivateTab), new object[] { filenames });
+                return;
+            }
+            if (WindowState == FormWindowState.Minimized)
+                WindowState = FormWindowState.Normal;
+            BringToFront();
+            Activate();
+            if (filenames != null && filenames.Length > 0)
+                OpenFileOrActivateTab(filenames);
         }
 
         private void openEventLogToolStripMenuItem_Click(object sender, EventArgs e)
@@ -1169,6 +1339,19 @@ namespace SnakeTail
             }
             finally
             {
+                lock (_folderWatchers)
+                {
+                    foreach (var w in _folderWatchers.Values)
+                    {
+                        try
+                        {
+                            w.Created -= FolderWatcher_Created;
+                            w.Dispose();
+                        }
+                        catch { }
+                    }
+                    _folderWatchers.Clear();
+                }
                 // 最后才将 _instance 设置为 null，确保异常处理可以访问它
                 _instance = null;
             }

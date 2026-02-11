@@ -491,6 +491,8 @@ namespace SnakeTail
             this._tailListView.DrawSubItem += new System.Windows.Forms.DrawListViewSubItemEventHandler(this._tailListView_DrawSubItem);
             this._tailListView.RetrieveVirtualItem += new System.Windows.Forms.RetrieveVirtualItemEventHandler(this._tailListView_RetrieveVirtualItem);
             this._tailListView.KeyDown += new System.Windows.Forms.KeyEventHandler(this._tailListView_KeyDown);
+            this._tailListView.MouseDown += new System.Windows.Forms.MouseEventHandler(this._tailListView_MouseDown);
+            this._tailListView.MouseDoubleClick += new System.Windows.Forms.MouseEventHandler(this._tailListView_MouseDoubleClick);
             //
             // hiddenItem
             //

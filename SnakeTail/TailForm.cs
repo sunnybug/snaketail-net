@@ -26,7 +26,6 @@ namespace SnakeTail
 {
     partial class TailForm : Form, ITailForm
     {
-        // Todo Implement inline selection when owner-drawn
         // Todo Implement inline keyword highlight when owner-drawn
         // Todo Filter Text File
         // Todo Consider keeping file handle open, even when file is renamed / deleted (show history)
@@ -112,6 +111,15 @@ namespace SnakeTail
         int _filteredVirtualListSize = 0;
         int _originalVirtualListSize = 0; // 保存原始列表大小
         int _savedLineNumber = 0; // 保存的清空前的行号
+
+        // 行内文字选择：双击先选词，再双击选整行；Ctrl+C 复制选中文字
+        string _inlineSelectionText = "";
+        int _inlineSelectionItemIndex = -1;
+        int _inlineSelectionStart = 0;
+        int _inlineSelectionLength = 0;
+        int _lastDoubleClickItemIndex = -1;
+        int _lastDoubleClickWordStart = -1;
+        int _lastDoubleClickWordLength = -1;
 
         private TailFileConfig _currentTailConfig = null;
 
@@ -199,6 +207,9 @@ namespace SnakeTail
         }
 
         public Form TailWindow { get { return this; } }
+
+        /// <summary>当前正在 tail 的日志文件绝对路径，用于单实例时判断是否已打开。</summary>
+        public string CurrentFilePathAbsolute => _logTailStream?.FilePathAbsolute;
 
         public void LoadFile(string filepath)
         {
@@ -826,16 +837,22 @@ namespace SnakeTail
 
         public void CopySelectionToClipboard()
         {
-            // Copy selected rows to clipboard
-            StringBuilder selection = new StringBuilder();
-            foreach (int itemIndex in _tailListView.SelectedIndices)
-            {
-                if (selection.Length > 0)
-                    selection.AppendLine();
-                selection.Append(_tailListView.Items[itemIndex].Text);
-            }
             try
             {
+                // 优先复制行内选中的文字（双击选词/选行）
+                if (!string.IsNullOrEmpty(_inlineSelectionText))
+                {
+                    ClipboardHelper.CopyToClipboard(_inlineSelectionText);
+                    return;
+                }
+                // 否则复制选中行
+                StringBuilder selection = new StringBuilder();
+                foreach (int itemIndex in _tailListView.SelectedIndices)
+                {
+                    if (selection.Length > 0)
+                        selection.AppendLine();
+                    selection.Append(_tailListView.Items[itemIndex].Text);
+                }
                 ClipboardHelper.CopyToClipboard(selection.ToString());
             }
             catch (Exception ex)
@@ -1430,6 +1447,26 @@ namespace SnakeTail
             {
                 TextRenderer.DrawText(e.Graphics, text, e.Item.ListView.Font, textBounds, e.SubItem.ForeColor, flags);
             }
+
+            // 行内选择高亮：在选中文字上绘制选区背景和文字
+            if (e.ItemIndex == _inlineSelectionItemIndex && _inlineSelectionLength > 0 && _inlineSelectionStart < text.Length)
+            {
+                int start = Math.Min(_inlineSelectionStart, text.Length);
+                int len = Math.Min(_inlineSelectionLength, text.Length - start);
+                if (len > 0)
+                {
+                    string beforeSel = text.Substring(0, start);
+                    string selText = text.Substring(start, len);
+                    Size beforeSize = TextRenderer.MeasureText(e.Graphics, beforeSel, e.Item.ListView.Font, new Size(int.MaxValue, textBounds.Height), flags);
+                    Size selSize = TextRenderer.MeasureText(e.Graphics, selText, e.Item.ListView.Font, new Size(int.MaxValue, textBounds.Height), flags);
+                    Rectangle selRect = new Rectangle(textBounds.Left + beforeSize.Width, textBounds.Top, selSize.Width, textBounds.Height);
+                    using (SolidBrush brush = new SolidBrush(SystemColors.Highlight))
+                    {
+                        e.Graphics.FillRectangle(brush, selRect);
+                    }
+                    TextRenderer.DrawText(e.Graphics, selText, e.Item.ListView.Font, selRect, SystemColors.HighlightText, flags);
+                }
+            }
         }
 
         /// <summary>
@@ -1661,8 +1698,151 @@ namespace SnakeTail
             }
         }
 
+        private void _tailListView_MouseDown(object sender, MouseEventArgs e)
+        {
+            // 单击时若点在其他行则清除行内选择（保留当前行选择以便双击选词/选行）
+            ListViewHitTestInfo hit = _tailListView.HitTest(e.Location);
+            if (hit.Item == null || hit.Item.Index != _inlineSelectionItemIndex)
+            {
+                ClearInlineSelection();
+            }
+        }
+
+        private void _tailListView_MouseDoubleClick(object sender, MouseEventArgs e)
+        {
+            ListViewHitTestInfo hit = _tailListView.HitTest(e.Location);
+            if (hit.Item == null || e.Button != MouseButtons.Left)
+                return;
+
+            int virtualIndex = hit.Item.Index;
+            int displayIndex = _filteredVirtualListSize > 0 && _filteredIndexMap != null && _filteredIndexMap.ContainsKey(virtualIndex)
+                ? _filteredIndexMap[virtualIndex]
+                : virtualIndex;
+
+            ListViewItem lvi = _logFileCache.LookupCache(displayIndex);
+            if (lvi == null)
+            {
+                _logFileCache.PrepareCache(Math.Max(0, displayIndex - 50), displayIndex + 50, false);
+                lvi = _logFileCache.LookupCache(displayIndex);
+            }
+            string lineText = lvi?.Text ?? "";
+            if (lineText.Length == 0)
+                return;
+
+            const int textLeftOffset = 6; // colorBlockWidth + 2，与 DrawSubItem 一致
+            int clickX = e.X - textLeftOffset;
+            if (clickX < 0)
+                clickX = 0;
+            int textWidth = Math.Max(1, _tailListView.Columns[1].Width - textLeftOffset);
+            using (Graphics g = _tailListView.CreateGraphics())
+            {
+                TextFormatFlags flags = TextFormatFlags.Left | TextFormatFlags.ExpandTabs | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix;
+                int charIndex = GetCharIndexAtPosition(g, lineText, _tailListView.Font, clickX, textWidth, flags);
+                int wordStart, wordLen;
+                GetWordAt(lineText, charIndex, out wordStart, out wordLen);
+
+                bool isSecondDoubleClickOnSameWord = (_lastDoubleClickItemIndex == virtualIndex
+                    && _lastDoubleClickWordStart >= 0
+                    && charIndex >= _lastDoubleClickWordStart
+                    && charIndex < _lastDoubleClickWordStart + _lastDoubleClickWordLength);
+
+                if (isSecondDoubleClickOnSameWord)
+                {
+                    // 在已选中的词上再次双击：选择整行
+                    _inlineSelectionText = lineText;
+                    _inlineSelectionItemIndex = virtualIndex;
+                    _inlineSelectionStart = 0;
+                    _inlineSelectionLength = lineText.Length;
+                    _lastDoubleClickItemIndex = -1;
+                    _lastDoubleClickWordStart = -1;
+                    _lastDoubleClickWordLength = -1;
+                }
+                else
+                {
+                    // 首次双击：选择词
+                    _inlineSelectionText = wordLen > 0 ? lineText.Substring(wordStart, wordLen) : "";
+                    _inlineSelectionItemIndex = virtualIndex;
+                    _inlineSelectionStart = wordStart;
+                    _inlineSelectionLength = wordLen;
+                    _lastDoubleClickItemIndex = virtualIndex;
+                    _lastDoubleClickWordStart = wordStart;
+                    _lastDoubleClickWordLength = wordLen;
+                }
+            }
+
+            _tailListView.Invalidate(_tailListView.GetItemRect(virtualIndex));
+        }
+
+        private void ClearInlineSelection()
+        {
+            if (_inlineSelectionItemIndex < 0)
+                return;
+            int prev = _inlineSelectionItemIndex;
+            _inlineSelectionText = "";
+            _inlineSelectionItemIndex = -1;
+            _inlineSelectionStart = 0;
+            _inlineSelectionLength = 0;
+            _lastDoubleClickItemIndex = -1;
+            _lastDoubleClickWordStart = -1;
+            _lastDoubleClickWordLength = -1;
+            if (prev >= 0 && prev < _tailListView.VirtualListSize)
+                _tailListView.Invalidate(_tailListView.GetItemRect(prev));
+        }
+
+        private static int GetCharIndexAtPosition(Graphics g, string text, Font font, int xOffset, int maxWidth, TextFormatFlags flags)
+        {
+            if (string.IsNullOrEmpty(text) || xOffset <= 0)
+                return 0;
+            string truncated = text.Length > 1000 ? text.Substring(0, 1000) : text;
+            for (int i = 1; i <= truncated.Length; i++)
+            {
+                string sub = truncated.Substring(0, i);
+                Size sz = TextRenderer.MeasureText(g, sub, font, new Size(int.MaxValue, 100), flags);
+                if (sz.Width > xOffset)
+                    return i - 1;
+            }
+            return truncated.Length;
+        }
+
+        private static void GetWordAt(string text, int charIndex, out int wordStart, out int wordLength)
+        {
+            wordStart = 0;
+            wordLength = 0;
+            if (string.IsNullOrEmpty(text) || charIndex < 0 || charIndex >= text.Length)
+                return;
+            // 词：字母、数字、下划线
+            int start = charIndex;
+            while (start > 0 && IsWordChar(text[start - 1]))
+                start--;
+            int end = charIndex;
+            while (end < text.Length && IsWordChar(text[end]))
+                end++;
+            wordStart = start;
+            wordLength = end - start;
+        }
+
+        private static bool IsWordChar(char c)
+        {
+            return char.IsLetterOrDigit(c) || c == '_';
+        }
+
         private void _tailListView_KeyDown(object sender, KeyEventArgs e)
         {
+            if (e.Control && e.KeyCode == Keys.C)
+            {
+                if (!string.IsNullOrEmpty(_inlineSelectionText))
+                {
+                    try
+                    {
+                        ClipboardHelper.CopyToClipboard(_inlineSelectionText);
+                        e.Handled = true;
+                        e.SuppressKeyPress = true;
+                    }
+                    catch { }
+                    return;
+                }
+            }
+
             if (e.Control && e.KeyCode == Keys.Add)
             {
                 e.Handled = true;   // No auto resize

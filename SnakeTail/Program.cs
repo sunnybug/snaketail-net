@@ -2,12 +2,12 @@
 /* SnakeTail is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, version 3 of the License.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
@@ -16,6 +16,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Pipes;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace SnakeTail
@@ -26,34 +28,141 @@ namespace SnakeTail
         /// <summary>GitHub Releases API（用于检查更新），与 publish 工作流发布的 tag 一致。</summary>
         public static readonly string GitHubReleasesApiUrl = "https://api.github.com/repos/sunnybug/snaketail-net/releases/latest";
 
+        const string SingleInstanceMutexName = "Local\\SnakeTail_SingleInstance";
+        const string SingleInstancePipeName = "SnakeTail_SingleInstance_Pipe";
+
         /// <summary>
         /// The main entry point for the application.
         /// </summary>
         [STAThread]
         static void Main()
         {
-            try
+            bool createdNew;
+            using (var mutex = new Mutex(true, SingleInstanceMutexName, out createdNew))
             {
-                ApplicationConfiguration.Initialize();
+                if (!createdNew)
+                {
+                    // 仅当传入 log 文件参数时才尝试激活首进程并传入参数；无参数时始终启动新进程（新窗口）
+                    var fileArgs = GetCommandLineFileArgs();
+                    if (fileArgs.Length > 0 && TrySendArgsToFirstInstance(fileArgs))
+                        return;
+                    // 无参数或首进程尚未就绪/管道不可用，当前进程仍正常启动
+                }
 
-                AppDomain.CurrentDomain.UnhandledException += new UnhandledExceptionEventHandler(CurrentDomain_UnhandledException);
-
-                Application.EnableVisualStyles();
-                Application.ThreadException += new System.Threading.ThreadExceptionEventHandler(Application_ThreadException);
-                Application.SetUnhandledExceptionMode(UnhandledExceptionMode.Automatic);
-                Application.SetCompatibleTextRenderingDefault(false);
-
-                Application.Run(new MainForm());
-            }
-            catch (Exception ex)
-            {
-                string path = Path.Combine(Path.GetTempPath(), "SnakeTail_startup_error.txt");
                 try
                 {
-                    File.WriteAllText(path, ex.ToString());
+                    ApplicationConfiguration.Initialize();
+
+                    AppDomain.CurrentDomain.UnhandledException += new UnhandledExceptionEventHandler(CurrentDomain_UnhandledException);
+
+                    Application.EnableVisualStyles();
+                    Application.ThreadException += new System.Threading.ThreadExceptionEventHandler(Application_ThreadException);
+                    Application.SetUnhandledExceptionMode(UnhandledExceptionMode.Automatic);
+                    Application.SetCompatibleTextRenderingDefault(false);
+
+                    var mainForm = new MainForm();
+                    Application.Run(mainForm);
                 }
-                catch { }
-                MessageBox.Show(ex.ToString(), "SnakeTail 启动异常", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                catch (Exception ex)
+                {
+                    string path = Path.Combine(Path.GetTempPath(), "SnakeTail_startup_error.txt");
+                    try
+                    {
+                        File.WriteAllText(path, ex.ToString());
+                    }
+                    catch { }
+                    MessageBox.Show(ex.ToString(), "SnakeTail 启动异常", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        }
+
+        /// <summary>从命令行参数中取出要打开的文件/会话路径（跳过 exe 自身）。</summary>
+        static string[] GetCommandLineFileArgs()
+        {
+            string[] args = Environment.GetCommandLineArgs();
+            if (args == null || args.Length <= 1)
+                return Array.Empty<string>();
+            var list = new List<string>();
+            for (int i = 1; i < args.Length; i++)
+            {
+                if (!string.IsNullOrWhiteSpace(args[i]))
+                    list.Add(args[i].Trim());
+            }
+            return list.ToArray();
+        }
+
+        /// <summary>第二实例：将参数通过命名管道发给首进程，成功返回 true。仅在传入 log 文件时由调用方使用。</summary>
+        static bool TrySendArgsToFirstInstance(string[] paths)
+        {
+            if (paths == null)
+                paths = Array.Empty<string>();
+            for (int retry = 0; retry < 30; retry++)
+            {
+                try
+                {
+                    using (var client = new NamedPipeClientStream(".", SingleInstancePipeName, PipeDirection.Out))
+                    {
+                        client.Connect(100);
+                        using (var bw = new BinaryWriter(client, System.Text.Encoding.UTF8, leaveOpen: true))
+                        {
+                            bw.Write(paths.Length);
+                            foreach (string p in paths)
+                                bw.Write(p ?? "");
+                        }
+                    }
+                    return true;
+                }
+                catch (TimeoutException) { }
+                catch (IOException) { }
+                Thread.Sleep(100);
+            }
+            return false;
+        }
+
+        /// <summary>由 MainForm 在 Shown 时调用，启动单实例管道服务（后台线程）。</summary>
+        public static void StartSingleInstancePipeServer()
+        {
+            var th = new Thread(RunSingleInstancePipeServer)
+            {
+                IsBackground = true,
+                Name = "SnakeTail.SingleInstancePipe"
+            };
+            th.Start();
+        }
+
+        static void RunSingleInstancePipeServer()
+        {
+            while (true)
+            {
+                try
+                {
+                    using (var server = new NamedPipeServerStream(SingleInstancePipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous))
+                    {
+                        server.WaitForConnection();
+                        var paths = new List<string>();
+                        using (var br = new BinaryReader(server, System.Text.Encoding.UTF8, leaveOpen: true))
+                        {
+                            int count = br.ReadInt32();
+                            for (int i = 0; i < count; i++)
+                                paths.Add(br.ReadString());
+                        }
+                        server.Disconnect();
+                        if (paths.Count > 0 && MainForm.Instance != null && !MainForm.Instance.IsDisposed)
+                            MainForm.Instance.BringToFrontAndOpenOrActivateTab(paths.ToArray());
+                    }
+                }
+                catch (ObjectDisposedException)
+                {
+                    break;
+                }
+                catch (IOException)
+                {
+                    // 客户端断开等
+                }
+                catch (Exception)
+                {
+                    // 忽略单次错误，继续接受下一连接
+                }
             }
         }
 

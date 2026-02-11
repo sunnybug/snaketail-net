@@ -56,6 +56,7 @@ namespace SnakeTail
             this._mainMenu = new System.Windows.Forms.MenuStrip();
             this.fileToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.openToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.openFolderWatchToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.openEventLogToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.closeItemToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.loadSessionToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
@@ -143,6 +144,7 @@ namespace SnakeTail
             //
             this.fileToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.openToolStripMenuItem,
+            this.openFolderWatchToolStripMenuItem,
             this.openEventLogToolStripMenuItem,
             this.closeItemToolStripMenuItem,
             this.loadSessionToolStripMenuItem,
@@ -165,6 +167,13 @@ namespace SnakeTail
             this.openToolStripMenuItem.Size = new System.Drawing.Size(176, 22);
             this.openToolStripMenuItem.Text = "Open &File...";
             this.openToolStripMenuItem.Click += new System.EventHandler(this.openToolStripMenuItem_Click);
+            //
+            // openFolderWatchToolStripMenuItem
+            //
+            this.openFolderWatchToolStripMenuItem.Name = "openFolderWatchToolStripMenuItem";
+            this.openFolderWatchToolStripMenuItem.Size = new System.Drawing.Size(176, 22);
+            this.openFolderWatchToolStripMenuItem.Text = "打开文件夹并监控...";
+            this.openFolderWatchToolStripMenuItem.Click += new System.EventHandler(this.openFolderWatchToolStripMenuItem_Click);
             //
             // openEventLogToolStripMenuItem
             //
@@ -477,6 +486,7 @@ namespace SnakeTail
         private System.Windows.Forms.TabControl _MDITabControl;
         private System.Windows.Forms.ToolStripMenuItem fileToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem openToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem openFolderWatchToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem windowToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem enableTabsToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem cascadeWindowsToolStripMenuItem;

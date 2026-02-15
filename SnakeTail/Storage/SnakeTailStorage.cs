@@ -44,8 +44,9 @@ namespace SnakeTail.Storage
         {
             if (string.IsNullOrEmpty(dbPath))
             {
-                string exeDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-                _dbPath = Path.Combine(exeDir, "xSnakeTail.db");
+                // 使用 %LOCALAPPDATA%\SnakeTail\xSnakeTail.db，不占用 exe 目录
+                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                _dbPath = Path.Combine(localAppData, "SnakeTail", "xSnakeTail.db");
             }
             else
             {

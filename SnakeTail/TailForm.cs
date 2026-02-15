@@ -1700,12 +1700,8 @@ namespace SnakeTail
 
         private void _tailListView_MouseDown(object sender, MouseEventArgs e)
         {
-            // 单击时若点在其他行则清除行内选择（保留当前行选择以便双击选词/选行）
-            ListViewHitTestInfo hit = _tailListView.HitTest(e.Location);
-            if (hit.Item == null || hit.Item.Index != _inlineSelectionItemIndex)
-            {
-                ClearInlineSelection();
-            }
+            // 单击时清除行内选择，以便随后 Ctrl+C 复制整行
+            ClearInlineSelection();
         }
 
         private void _tailListView_MouseDoubleClick(object sender, MouseEventArgs e)
@@ -1770,6 +1766,8 @@ namespace SnakeTail
                 }
             }
 
+            // 双击选中文字时去掉整行选择，只保留行内选区高亮
+            _tailListView.SelectedIndices.Clear();
             _tailListView.Invalidate(_tailListView.GetItemRect(virtualIndex));
         }
 
@@ -1840,6 +1838,18 @@ namespace SnakeTail
                     }
                     catch { }
                     return;
+                }
+                // 否则复制当前行
+                ListViewItem current = _tailListView.FocusedItem ?? (_tailListView.SelectedIndices.Count > 0 ? _tailListView.Items[_tailListView.SelectedIndices[0]] : null);
+                if (current != null && !string.IsNullOrEmpty(current.Text))
+                {
+                    try
+                    {
+                        ClipboardHelper.CopyToClipboard(current.Text);
+                        e.Handled = true;
+                        e.SuppressKeyPress = true;
+                    }
+                    catch { }
                 }
             }
 

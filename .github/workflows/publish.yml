@@ -28,15 +28,15 @@ jobs:
         shell: pwsh
 
       - name: 构建 SnakeTail (portable x64)
-        run: msbuild SnakeTail\SnakeTail.csproj '/p:Configuration=Release;PlatformTarget=x64' '/t:Clean;Rebuild'
+        run: msbuild src\SnakeTail.csproj '/p:Configuration=Release;PlatformTarget=x64' '/t:Clean;Rebuild'
         shell: pwsh
 
       - name: 定位 x64 构建输出目录
         id: outdir
         run: |
           $candidates = @(
-            'SnakeTail\bin\Release\net8.0-windows',
-            'SnakeTail\bin\x64\Release\net8.0-windows'
+            '.temp\bin\Release\net8.0-windows',
+            '.temp\bin\x64\Release\net8.0-windows'
           )
           $outDir = $null
           foreach ($d in $candidates) {
@@ -47,7 +47,7 @@ jobs:
           }
           if (-not $outDir) {
             Write-Host "SnakeTail.exe 未找到，已检查: $($candidates -join ', ')"
-            Get-ChildItem -Path SnakeTail\bin -Recurse -Filter 'SnakeTail.exe' -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "发现: $($_.FullName)" }
+            Get-ChildItem -Path .temp\bin -Recurse -Filter 'SnakeTail.exe' -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "发现: $($_.FullName)" }
             exit 1
           }
           "OUTDIR=$outDir" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8

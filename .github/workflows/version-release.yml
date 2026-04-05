@@ -7,7 +7,7 @@ on:
       - main
       - master
     paths:
-      - 'SnakeTail/SnakeTail.csproj'
+      - 'src/SnakeTail.csproj'
 
 permissions:
   contents: write
@@ -25,9 +25,9 @@ jobs:
       - name: 读取版本号
         id: version
         run: |
-          VERSION=$(grep -oP '<Version>\K[^<]+' SnakeTail/SnakeTail.csproj || true)
+          VERSION=$(grep -oP '<Version>\K[^<]+' src/SnakeTail.csproj || true)
           if [ -z "$VERSION" ]; then
-            VERSION=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' SnakeTail/SnakeTail.csproj)
+            VERSION=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' src/SnakeTail.csproj)
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "当前版本: $VERSION"

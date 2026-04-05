@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'SnakeTail'">
+    <BaseOutputPath>$(MSBuildThisFileDirectory).temp\bin\</BaseOutputPath>
+    <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory).temp\obj\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'SnakeTail.Tests'">
+    <BaseOutputPath>$(MSBuildThisFileDirectory).temp\bin\SnakeTail.Tests\</BaseOutputPath>
+    <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory).temp\obj\SnakeTail.Tests\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+</Project>

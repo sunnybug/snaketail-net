@@ -65,12 +65,7 @@ namespace SnakeTail
                 }
                 catch (Exception ex)
                 {
-                    string path = Path.Combine(Path.GetTempPath(), "SnakeTail_startup_error.txt");
-                    try
-                    {
-                        File.WriteAllText(path, ex.ToString());
-                    }
-                    catch { }
+                    AppLog.AppendCrash(ex, "SnakeTail startup");
                     MessageBox.Show(ex.ToString(), "SnakeTail 启动异常", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
@@ -206,16 +201,12 @@ namespace SnakeTail
             }
             catch (Exception dialogEx)
             {
-                string path = Path.Combine(Path.GetTempPath(), "SnakeTail_crash_error.txt");
-                try
-                {
-                    File.WriteAllText(path, ex?.ToString() + Environment.NewLine + "--- Dialog failed ---" + Environment.NewLine + dialogEx.ToString());
-                }
-                catch { }
+                AppLog.AppendCrash(ex, "--- Dialog failed ---" + Environment.NewLine + dialogEx);
+                string crashPath = AppLog.GetCrashLogFilePath();
                 MessageBox.Show(
                     "无法显示错误报告对话框。" + Environment.NewLine + Environment.NewLine +
                     "原始异常: " + (ex?.Message ?? "null") + Environment.NewLine + Environment.NewLine +
-                    "详细已写入: " + path,
+                    "详细已写入: " + crashPath,
                     Application.ProductName + " - Error",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);

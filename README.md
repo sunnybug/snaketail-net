@@ -1,8 +1,26 @@
 # snaketail-net
 用于监控文本日志文件和 Windows 事件日志的 Tail 工具
 
+## 目录结构（约定）
+
+| 路径 | 说明 |
+|------|------|
+| `src/` | 主程序源码与 `SnakeTail.csproj` |
+| `tests/` | 单元测试 |
+| `script/` | `build.ps1`、`publish.ps1`、`init_dev.ps1` |
+| `.temp/` | 编译中间文件与输出（由 csproj 重定向，勿提交） |
+| `.run/` | 本地运行工作目录（`log/`、`config/`，勿提交） |
+| `.dist/` | `publish.ps1` 生成的本地发布目录（勿提交） |
+| `0run.ps1` | 一键编译、清理 `.run/log`、从 `src\app.config` 种子复制到 `.run\config`（若缺失）、启动或跑测试 |
+
+开发时请先执行 `.\script\init_dev.ps1` 初始化 `.run` 并 `dotnet restore`。
+
+VS Code 推荐扩展（见 `.vscode/extensions.json`）：**C# Dev Kit**（调试、解决方案与测试）、**C#**（语言服务与代码分析）。
+
+运行/调试：工作目录应为 `.run/`（`0run.ps1` 与 VS Code `launch.json` 已如此配置）。日志写入 `.run/log/`：`YYYY-MM-DD.log`（分级行格式）、`YYYY-MM-DD_crash.log`（未处理异常等）。
+
 ## 自动发布（CI）
-修改 `SnakeTail/SnakeTail.csproj` 中的版本号并推送到 `main`/`master` 后，Version Release 工作流会自动创建 tag。**要让 Publish 工作流被触发**，请在仓库 Settings → Secrets and variables → Actions 中新增 Secret：
+修改 `src/SnakeTail.csproj` 中的版本号并推送到 `main`/`master` 后，Version Release 工作流会自动创建 tag。**要让 Publish 工作流被触发**，请在仓库 Settings → Secrets and variables → Actions 中新增 Secret：
 - **名称**：`REPO_TOKEN`
 - **值**：一个 Personal Access Token（需勾选 `repo` 权限）
 

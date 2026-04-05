@@ -1,14 +1,11 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.30907.101
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SnakeTail", "SnakeTail\SnakeTail.csproj", "{003BAF38-EE59-46AB-A90E-46B51791CDEA}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SnakeTail", "src\SnakeTail.csproj", "{003BAF38-EE59-46AB-A90E-46B51791CDEA}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{80966EFE-C60E-4324-92D9-C169D50BEFE9}"
-	ProjectSection(SolutionItems) = preProject
-		snaketail.pad.xml = snaketail.pad.xml
-	EndProjectSection
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SnakeTail.Tests", "tests\SnakeTail.Tests\SnakeTail.Tests.csproj", "{B8C7D6E5-F4A3-4B21-9C87-6543210FEDCBA}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -20,6 +17,10 @@ Global
 		{003BAF38-EE59-46AB-A90E-46B51791CDEA}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{003BAF38-EE59-46AB-A90E-46B51791CDEA}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{003BAF38-EE59-46AB-A90E-46B51791CDEA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B8C7D6E5-F4A3-4B21-9C87-6543210FEDCBA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B8C7D6E5-F4A3-4B21-9C87-6543210FEDCBA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B8C7D6E5-F4A3-4B21-9C87-6543210FEDCBA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B8C7D6E5-F4A3-4B21-9C87-6543210FEDCBA}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

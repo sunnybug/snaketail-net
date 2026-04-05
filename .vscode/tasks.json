@@ -7,7 +7,7 @@
       "type": "process",
       "args": [
         "build",
-        "${workspaceFolder}/SnakeTail/SnakeTail.csproj",
+        "${workspaceFolder}/src/SnakeTail.csproj",
         "/property:Configuration=Debug",
         "/property:GenerateFullPaths=true",
         "/consoleloggerparameters:NoSummary;ForceNoAlign"

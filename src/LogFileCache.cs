@@ -122,12 +122,27 @@ namespace SnakeTail
 
         public void AppendTailCache(string line, int lineCount)
         {
+            if (lineCount <= 0 || Items.Count == 0)
+                return;
+
             // Only update cache if we are near bottom
             if (Items.Count + FirstIndex + 1 >= lineCount)
             {
                 PrepareCache(FirstIndex + 1, lineCount - 1, true);
-                Items[lineCount - FirstIndex - 1] = new ListViewItem(line);
-                Items[lineCount - FirstIndex - 1].SubItems.Add("");
+                int cacheIndex = lineCount - FirstIndex - 1;
+                if (cacheIndex < 0 || cacheIndex >= Items.Count)
+                {
+                    // FirstIndex can be stale when tail state changes (truncate/reload).
+                    // Re-anchor cache so the newest line fits in current window.
+                    int startIndex = Math.Max(0, lineCount - Items.Count);
+                    PrepareCache(startIndex, lineCount - 1, false);
+                    cacheIndex = lineCount - FirstIndex - 1;
+                    if (cacheIndex < 0 || cacheIndex >= Items.Count)
+                        return;
+                }
+
+                Items[cacheIndex] = new ListViewItem(line);
+                Items[cacheIndex].SubItems.Add("");
             }
         }
 

@@ -51,7 +51,7 @@ public class DisplayPluginDiscoveryAndDragonMaidTests
     [Fact]
     public void DragonMaid_should_append_skill_name_for_known_id()
     {
-        // 验证龙女仆插件对命中技能 ID 的替换效果
+        // 验证龙女仆插件对 skills 命中技能 ID 的替换效果
         string tempRoot = Path.Combine(Path.GetTempPath(), "snaketail-plugin-test-" + Guid.NewGuid().ToString("N"));
         string pluginDir = Path.Combine(tempRoot, "config", "plugins", "龙女仆");
         Directory.CreateDirectory(pluginDir);
@@ -71,6 +71,60 @@ public class DisplayPluginDiscoveryAndDragonMaidTests
             Assert.Equal("abc skills: 10009001 圣剑斩 def", knownResult.Output);
             Assert.False(unknownResult.Handled);
             Assert.Equal("abc skills: 99999999 def", unknownResult.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DragonMaid_should_append_skill_name_for_known_passive_skill_id()
+    {
+        // 验证龙女仆插件对 passive_skill 命中技能 ID 的替换效果
+        string tempRoot = Path.Combine(Path.GetTempPath(), "snaketail-plugin-test-" + Guid.NewGuid().ToString("N"));
+        string pluginDir = Path.Combine(tempRoot, "config", "plugins", "龙女仆");
+        Directory.CreateDirectory(pluginDir);
+        try
+        {
+            string jsonPath = Path.Combine(pluginDir, "s_skill.json");
+            File.WriteAllText(jsonPath, """{"s_skill":[[99501001,"测试被动1"]] }""");
+
+            var plugin = new DragonMaidDisplayPlugin();
+            var context = new PluginContext(pluginDir, Path.Combine(tempRoot, "config"), Path.Combine(tempRoot, "fake.log"), "1.0.0");
+            plugin.Initialize(context);
+
+            PluginProcessResult knownResult = plugin.TryProcess("abc passive_skill: 99501001 def");
+
+            Assert.True(knownResult.Handled);
+            Assert.Equal("abc passive_skill: 99501001 测试被动1 def", knownResult.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DragonMaid_should_keep_passive_skill_zero_unchanged()
+    {
+        // 验证 passive_skill: 0 无映射时保持原样
+        string tempRoot = Path.Combine(Path.GetTempPath(), "snaketail-plugin-test-" + Guid.NewGuid().ToString("N"));
+        string pluginDir = Path.Combine(tempRoot, "config", "plugins", "龙女仆");
+        Directory.CreateDirectory(pluginDir);
+        try
+        {
+            string jsonPath = Path.Combine(pluginDir, "s_skill.json");
+            File.WriteAllText(jsonPath, """{"s_skill":[[99501001,"测试被动1"]] }""");
+
+            var plugin = new DragonMaidDisplayPlugin();
+            var context = new PluginContext(pluginDir, Path.Combine(tempRoot, "config"), Path.Combine(tempRoot, "fake.log"), "1.0.0");
+            plugin.Initialize(context);
+
+            PluginProcessResult zeroResult = plugin.TryProcess("abc passive_skill: 0 def");
+
+            Assert.False(zeroResult.Handled);
+            Assert.Equal("abc passive_skill: 0 def", zeroResult.Output);
         }
         finally
         {

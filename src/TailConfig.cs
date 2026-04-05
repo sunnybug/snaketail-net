@@ -170,6 +170,19 @@ namespace SnakeTail
 
     public class TailFileConfig
     {
+        // 新建配置默认值：避免轮询参数缺失时退化为高频空转。
+        public const int DefaultFileCacheSize = 1000;
+        public const int DefaultFileCheckIntervalSeconds = 10;
+        public const int DefaultFileChangeCheckIntervalMs = 500;
+
+        public TailFileConfig()
+        {
+            // 仅在配置未显式赋值时生效，兼顾旧会话反序列化。
+            FileCacheSize = DefaultFileCacheSize;
+            FileCheckInterval = DefaultFileCheckIntervalSeconds;
+            FileChangeCheckInterval = DefaultFileChangeCheckIntervalMs;
+        }
+
         public string FilePath { get; set; }
         public string FileEncoding { get; set; }
         public int FileCacheSize { get; set; }

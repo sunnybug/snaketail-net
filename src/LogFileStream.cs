@@ -17,6 +17,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Threading;
 
 namespace SnakeTail
 {
@@ -34,6 +35,10 @@ namespace SnakeTail
         long _lastFileCheckLength = 0;
         TimeSpan _fileCheckFrequency = TimeSpan.FromSeconds(10);
         bool _fileCheckPattern = false;
+        FileSystemWatcher _fileWatcher = null;
+        int _fileChangedSignal = 0;
+        DateTime _lastEventDrivenCheck = DateTime.MinValue;
+        static readonly TimeSpan EventDrivenCheckDebounce = TimeSpan.FromMilliseconds(200);
 
         public event EventHandler FileReloadedEvent;
 
@@ -48,6 +53,7 @@ namespace SnakeTail
             if (_fileCheckPattern)
                 _threadPool = new ThreadPoolQueue(0);
             LoadFile(_filePathAbsolute, _fileEncoding, _fileCheckPattern);
+            SetupFileWatcher();
         }
 
         ~LogFileStream()
@@ -233,6 +239,8 @@ namespace SnakeTail
                 _threadPool = null;
             }
 
+            DisposeFileWatcher();
+
             CloseFile(false);
         }
 
@@ -385,7 +393,123 @@ namespace SnakeTail
             }
 
             _lastLineNumber = 0;
+            Interlocked.Exchange(ref _fileChangedSignal, 0);
             return true;
+        }
+
+        // 初始化文件系统监听：事件触发为主，轮询兜底。
+        void SetupFileWatcher()
+        {
+            DisposeFileWatcher();
+
+            try
+            {
+                string watchDirectory = Path.GetDirectoryName(_filePathAbsolute);
+                string watchFilter = Path.GetFileName(_filePathAbsolute);
+                if (string.IsNullOrEmpty(watchDirectory) || string.IsNullOrEmpty(watchFilter))
+                    return;
+                if (!Directory.Exists(watchDirectory))
+                    return;
+
+                _fileWatcher = new FileSystemWatcher(watchDirectory, watchFilter);
+                _fileWatcher.IncludeSubdirectories = false;
+                _fileWatcher.NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.CreationTime;
+                _fileWatcher.Changed += FileWatcher_Changed;
+                _fileWatcher.Created += FileWatcher_Changed;
+                _fileWatcher.Deleted += FileWatcher_Changed;
+                _fileWatcher.Renamed += FileWatcher_Renamed;
+                _fileWatcher.Error += FileWatcher_Error;
+                _fileWatcher.EnableRaisingEvents = true;
+            }
+            catch (ArgumentException ex)
+            {
+                System.Diagnostics.Debug.WriteLine("Failed to initialize file watcher due to invalid path or filter: " + ex.Message);
+                DisposeFileWatcher();
+            }
+            catch (System.Security.SecurityException ex)
+            {
+                System.Diagnostics.Debug.WriteLine("Failed to initialize file watcher due to insufficient permission: " + ex.Message);
+                DisposeFileWatcher();
+            }
+            catch (IOException ex)
+            {
+                System.Diagnostics.Debug.WriteLine("Failed to initialize file watcher due to IO error: " + ex.Message);
+                DisposeFileWatcher();
+            }
+        }
+
+        // 释放监听资源，避免句柄泄漏。
+        void DisposeFileWatcher()
+        {
+            if (_fileWatcher == null)
+                return;
+
+            _fileWatcher.EnableRaisingEvents = false;
+            _fileWatcher.Changed -= FileWatcher_Changed;
+            _fileWatcher.Created -= FileWatcher_Changed;
+            _fileWatcher.Deleted -= FileWatcher_Changed;
+            _fileWatcher.Renamed -= FileWatcher_Renamed;
+            _fileWatcher.Error -= FileWatcher_Error;
+            _fileWatcher.Dispose();
+            _fileWatcher = null;
+        }
+
+        // 文件事件：仅打脏标记，避免事件线程直接做重 IO。
+        void FileWatcher_Changed(object sender, FileSystemEventArgs e)
+        {
+            if (IsWatchEventMatch(_filePathAbsolute, _fileStream != null ? _fileStream.Name : null, e != null ? e.FullPath : null, _fileCheckPattern))
+                Interlocked.Exchange(ref _fileChangedSignal, 1);
+        }
+
+        // 重命名事件：新旧路径任一命中都视为变化。
+        void FileWatcher_Renamed(object sender, RenamedEventArgs e)
+        {
+            string oldPath = e != null ? e.OldFullPath : null;
+            string newPath = e != null ? e.FullPath : null;
+            if (IsWatchEventMatch(_filePathAbsolute, _fileStream != null ? _fileStream.Name : null, oldPath, _fileCheckPattern) ||
+                IsWatchEventMatch(_filePathAbsolute, _fileStream != null ? _fileStream.Name : null, newPath, _fileCheckPattern))
+            {
+                Interlocked.Exchange(ref _fileChangedSignal, 1);
+            }
+        }
+
+        // 监听错误：标记脏并让兜底轮询尽快接管。
+        void FileWatcher_Error(object sender, ErrorEventArgs e)
+        {
+            Interlocked.Exchange(ref _fileChangedSignal, 1);
+        }
+
+        // 判断事件路径是否与当前跟踪目标相关。
+        internal static bool IsWatchEventMatch(string configuredPathAbsolute, string openedFilePath, string eventPath, bool fileCheckPattern)
+        {
+            if (string.IsNullOrEmpty(eventPath))
+                return false;
+
+            if (fileCheckPattern)
+                return true;
+
+            string targetPath = !string.IsNullOrEmpty(openedFilePath) ? openedFilePath : configuredPathAbsolute;
+            if (string.IsNullOrEmpty(targetPath))
+                return false;
+
+            try
+            {
+                string fullTarget = Path.GetFullPath(targetPath);
+                string fullEvent = Path.GetFullPath(eventPath);
+                return string.Equals(fullTarget, fullEvent, StringComparison.OrdinalIgnoreCase);
+            }
+            catch (ArgumentException)
+            {
+                return string.Equals(targetPath, eventPath, StringComparison.OrdinalIgnoreCase);
+            }
+            catch (NotSupportedException)
+            {
+                return string.Equals(targetPath, eventPath, StringComparison.OrdinalIgnoreCase);
+            }
+            catch (PathTooLongException)
+            {
+                return string.Equals(targetPath, eventPath, StringComparison.OrdinalIgnoreCase);
+            }
         }
 
         public string ReadLine(int lineNumber)
@@ -417,9 +541,24 @@ namespace SnakeTail
 
                 if (_fileReader.EndOfStream)
                 {
-                    // Check if file has been renamed/truncated (once every 10 seconds)
-                    if (DateTime.UtcNow.Subtract(_lastFileCheck) >= _fileCheckFrequency)
+                    // 事件触发优先：有变化信号时防抖检查，减少空闲轮询。
+                    if (Interlocked.Exchange(ref _fileChangedSignal, 0) == 1)
+                    {
+                        if (DateTime.UtcNow.Subtract(_lastEventDrivenCheck) >= EventDrivenCheckDebounce)
+                        {
+                            CheckLogFile(false);
+                            _lastEventDrivenCheck = DateTime.UtcNow;
+                        }
+                        else
+                        {
+                            Interlocked.Exchange(ref _fileChangedSignal, 1);
+                        }
+                    }
+                    // 兜底轮询：覆盖丢事件、网络盘延迟或监听错误场景。
+                    else if (DateTime.UtcNow.Subtract(_lastFileCheck) >= _fileCheckFrequency)
+                    {
                         CheckLogFile(false);
+                    }
                     return null;
                 }
 

@@ -9,7 +9,8 @@ namespace LongMaidDisplayPlugin
     /// </summary>
     public sealed class DragonMaidDisplayPlugin : ILogDisplayPlugin
     {
-        private static readonly Regex SkillRegex = new Regex(@"skills:\s*(\d+)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        // 统一匹配 skills/passive_skill 两种键名。
+        private static readonly Regex SkillRegex = new Regex(@"(?<key>skills|passive_skill):\s*(?<id>\d+)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
         private readonly Dictionary<int, string> _skillMap = new Dictionary<int, string>();
         private string _jsonPath = string.Empty;
 
@@ -52,7 +53,7 @@ namespace LongMaidDisplayPlugin
         }
 
         /// <summary>
-        /// 只处理包含 skills: 数字 的行。
+        /// 只处理包含 skills/passive_skill 数字 的行。
         /// </summary>
         public bool CanProcess(string line)
         {
@@ -62,7 +63,7 @@ namespace LongMaidDisplayPlugin
         }
 
         /// <summary>
-        /// 命中且可映射时输出 skills: ID 名称；否则放行后续插件。
+        /// 命中且可映射时输出 key: ID 名称；否则放行后续插件。
         /// </summary>
         public PluginProcessResult TryProcess(string line)
         {
@@ -73,20 +74,23 @@ namespace LongMaidDisplayPlugin
             if (!match.Success)
                 return new PluginProcessResult { Handled = false, Output = line };
 
-            if (!int.TryParse(match.Groups[1].Value, out int skillId))
+            string key = match.Groups["key"].Value;
+            string idText = match.Groups["id"].Value;
+            if (!int.TryParse(idText, out int skillId))
             {
                 return new PluginProcessResult
                 {
                     Handled = false,
                     Output = line,
-                    ErrorMessage = "skills 数字解析失败: " + match.Groups[1].Value
+                    ErrorMessage = key + " 数字解析失败: " + idText
                 };
             }
 
             if (!_skillMap.TryGetValue(skillId, out string? skillName))
                 return new PluginProcessResult { Handled = false, Output = line };
 
-            string replacement = string.Format("skills: {0} {1}", skillId, skillName);
+            // 保持原键名，仅追加技能名。
+            string replacement = string.Format("{0}: {1} {2}", key, skillId, skillName);
             string output = SkillRegex.Replace(line, replacement, 1);
             return new PluginProcessResult { Handled = true, Output = output };
         }

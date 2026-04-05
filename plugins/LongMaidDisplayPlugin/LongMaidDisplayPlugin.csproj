@@ -5,8 +5,10 @@
     <Nullable>enable</Nullable>
     <AssemblyName>LongMaidDisplayPlugin</AssemblyName>
     <RootNamespace>LongMaidDisplayPlugin</RootNamespace>
+    <!-- 关闭目标框架后缀，保持插件输出目录稳定 -->
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <OutDir>$(MSBuildProjectDirectory)\..\..\config\plugins\龙女仆\</OutDir>
+    <!-- 排除历史本地 obj/bin，避免迁移到 .temp 后重复编译 -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj\**;bin\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>

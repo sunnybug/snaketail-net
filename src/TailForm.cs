@@ -417,8 +417,13 @@ namespace SnakeTail
                 return;
             }
 
+            // 兼容旧配置：缺失或非法值时回退到稳定默认值。
             if (tailConfig.FileCacheSize <= 0)
-                tailConfig.FileCacheSize = 1000;
+                tailConfig.FileCacheSize = TailFileConfig.DefaultFileCacheSize;
+            if (tailConfig.FileCheckInterval <= 0)
+                tailConfig.FileCheckInterval = TailFileConfig.DefaultFileCheckIntervalSeconds;
+            if (tailConfig.FileChangeCheckInterval <= 0)
+                tailConfig.FileChangeCheckInterval = TailFileConfig.DefaultFileChangeCheckIntervalMs;
 
             if (tailConfig.FormBackColor != null)
                 _tailListView.BackColor = tailConfig.FormBackColor.Value;
@@ -433,8 +438,7 @@ namespace SnakeTail
             if (tailConfig.FormBookmarkTextColor != null)
                 _bookmarkTextColor = tailConfig.FormBookmarkTextColor.Value;
 
-            if (tailConfig.FileChangeCheckInterval > 0)
-                _tailTimer.Interval = tailConfig.FileChangeCheckInterval;
+            _tailTimer.Interval = tailConfig.FileChangeCheckInterval;
 
             _externalTools = tailConfig.ExternalTools;
             externalToolsToolStripMenuItem.DropDownItems.Clear();

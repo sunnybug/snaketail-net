@@ -201,6 +201,9 @@ namespace SnakeTail
         public List<TailKeywordConfig> KeywordHighlight { get; set; }
         [XmlArrayItem("ExternalTools")]
         public List<ExternalToolConfig> ExternalTools { get; set; }
+        [XmlArray("EnabledDisplayPlugins")]
+        [XmlArrayItem("Plugin")]
+        public List<string> EnabledDisplayPlugins { get; set; }
 
         // 快速关键字相关配置
         public string QuickKeyword { get; set; }

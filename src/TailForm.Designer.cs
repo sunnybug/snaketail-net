@@ -83,6 +83,7 @@ namespace SnakeTail
             this.configureViewToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.switchModeToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.externalToolsToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this._pluginsToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.openContainingFolderToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.copyAsPathToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.reopenFileToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
@@ -213,6 +214,7 @@ namespace SnakeTail
             this.switchModeToolStripMenuItem,
             toolStripSeparator3,
             this.externalToolsToolStripMenuItem,
+            this._pluginsToolStripMenuItem,
             this.openContainingFolderToolStripMenuItem,
             this.copyAsPathToolStripMenuItem,
             this.reopenFileToolStripMenuItem,
@@ -234,9 +236,8 @@ namespace SnakeTail
             // _copyToolStripMenuItem
             //
             this._copyToolStripMenuItem.Name = "_copyToolStripMenuItem";
-            this._copyToolStripMenuItem.ShortcutKeys = ((System.Windows.Forms.Keys)((System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.C)));
             this._copyToolStripMenuItem.Size = new System.Drawing.Size(246, 22);
-            this._copyToolStripMenuItem.Text = "Copy";
+            this._copyToolStripMenuItem.Text = "复制（处理后文本）";
             this._copyToolStripMenuItem.Click += new System.EventHandler(this._copyToolStripMenuItem_Click);
             //
             // findToolStripMenuItem
@@ -298,6 +299,12 @@ namespace SnakeTail
             this.externalToolsToolStripMenuItem.Name = "externalToolsToolStripMenuItem";
             this.externalToolsToolStripMenuItem.Size = new System.Drawing.Size(246, 22);
             this.externalToolsToolStripMenuItem.Text = "External Tools";
+            //
+            // _pluginsToolStripMenuItem
+            //
+            this._pluginsToolStripMenuItem.Name = "_pluginsToolStripMenuItem";
+            this._pluginsToolStripMenuItem.Size = new System.Drawing.Size(246, 22);
+            this._pluginsToolStripMenuItem.Text = "插件";
             //
             // openContainingFolderToolStripMenuItem
             //
@@ -556,6 +563,7 @@ namespace SnakeTail
         private System.Windows.Forms.ToolStripMenuItem gotoPreviousHighlightToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem pauseWindowToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem externalToolsToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem _pluginsToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem bookmarksToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem toggleBookmarkToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem nextBookmarkToolStripMenuItem;

@@ -14,7 +14,8 @@ function Initialize-DevEnvironment {
     $runDir = Join-Path $repoRoot ".run"
     $logDir = Join-Path $runDir "log"
     $configDir = Join-Path $runDir "config"
-    foreach ($d in @($runDir, $logDir, $configDir)) {
+    $pluginConfigDir = Join-Path $runDir "config\plugins"
+    foreach ($d in @($runDir, $logDir, $configDir, $pluginConfigDir)) {
         if (-not (Test-Path $d)) {
             New-Item -ItemType Directory -Path $d -Force | Out-Null
             Write-Host "已创建: $d" -ForegroundColor Green

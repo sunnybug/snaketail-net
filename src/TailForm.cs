@@ -21,6 +21,7 @@ using System.Text;
 using System.Windows.Forms;
 using System.IO;
 using System.Diagnostics;
+using System.Linq;
 
 namespace SnakeTail
 {
@@ -111,6 +112,10 @@ namespace SnakeTail
         int _filteredVirtualListSize = 0;
         int _originalVirtualListSize = 0; // 保存原始列表大小
         int _savedLineNumber = 0; // 保存的清空前的行号
+        // 显示插件相关字段
+        DisplayPluginManager _displayPluginManager = null;
+        DisplayTextProcessor _displayTextProcessor = new DisplayTextProcessor();
+        List<LoadedDisplayPlugin> _availableDisplayPlugins = new List<LoadedDisplayPlugin>();
 
         // 行内文字选择：双击先选词，再双击选整行；Ctrl+C 复制选中文字
         string _inlineSelectionText = "";
@@ -135,6 +140,182 @@ namespace SnakeTail
         {
             _highlightColorButton.BackColor = _quickHighlightColor;
             _highlightColorButton.ForeColor = GetContrastColor(_quickHighlightColor);
+        }
+
+        /// <summary>
+        /// 初始化显示插件并恢复当前文件启用状态。
+        /// </summary>
+        private void InitializeDisplayPlugins(TailFileConfig tailConfig)
+        {
+            _displayPluginManager = new DisplayPluginManager(_configPath);
+            string currentFilePath = _logTailStream != null ? _logTailStream.FilePathAbsolute : string.Empty;
+            _displayPluginManager.Reload(currentFilePath);
+            _availableDisplayPlugins = _displayPluginManager.AvailablePlugins.ToList();
+
+            List<LoadedDisplayPlugin> enabledPlugins = new List<LoadedDisplayPlugin>();
+            List<string> enabledPluginNames = tailConfig.EnabledDisplayPlugins ?? new List<string>();
+            foreach (string pluginName in enabledPluginNames)
+            {
+                LoadedDisplayPlugin plugin = _displayPluginManager.FindByDisplayName(pluginName);
+                if (plugin != null)
+                {
+                    enabledPlugins.Add(plugin);
+                }
+                else
+                {
+                    AppLog.AppendDaily(AppLog.LevelWarn, string.Format("配置引用的显示插件未找到，已忽略: Plugin={0}, File={1}", pluginName, tailConfig.FilePath));
+                }
+            }
+
+            _displayTextProcessor.SetEnabledPlugins(enabledPlugins);
+            SyncEnabledPluginsToConfig();
+            RebuildPluginMenu();
+        }
+
+        /// <summary>
+        /// 重建插件菜单项并同步勾选状态。
+        /// </summary>
+        private void RebuildPluginMenu()
+        {
+            _pluginsToolStripMenuItem.DropDownItems.Clear();
+            _pluginsToolStripMenuItem.Enabled = _availableDisplayPlugins.Count > 0;
+
+            foreach (LoadedDisplayPlugin plugin in _availableDisplayPlugins)
+            {
+                ToolStripMenuItem pluginMenuItem = new ToolStripMenuItem(plugin.DisplayName);
+                pluginMenuItem.CheckOnClick = true;
+                pluginMenuItem.Checked = _displayTextProcessor.EnabledPlugins.Any(x => string.Equals(x.DisplayName, plugin.DisplayName, StringComparison.CurrentCultureIgnoreCase));
+                pluginMenuItem.Tag = plugin.DisplayName;
+                pluginMenuItem.Click += pluginMenuItem_Click;
+                _pluginsToolStripMenuItem.DropDownItems.Add(pluginMenuItem);
+            }
+        }
+
+        /// <summary>
+        /// 插件菜单点击：按点击顺序启用，取消则移除。
+        /// </summary>
+        private void pluginMenuItem_Click(object sender, EventArgs e)
+        {
+            ToolStripMenuItem menuItem = sender as ToolStripMenuItem;
+            if (menuItem == null || menuItem.Tag == null)
+                return;
+
+            string pluginName = menuItem.Tag.ToString();
+            List<LoadedDisplayPlugin> enabledPlugins = _displayTextProcessor.EnabledPlugins.ToList();
+            LoadedDisplayPlugin targetPlugin = _displayPluginManager != null ? _displayPluginManager.FindByDisplayName(pluginName) : null;
+            if (targetPlugin == null)
+                return;
+
+            if (menuItem.Checked)
+            {
+                if (!enabledPlugins.Any(x => string.Equals(x.DisplayName, pluginName, StringComparison.CurrentCultureIgnoreCase)))
+                    enabledPlugins.Add(targetPlugin);
+            }
+            else
+            {
+                enabledPlugins.RemoveAll(x => string.Equals(x.DisplayName, pluginName, StringComparison.CurrentCultureIgnoreCase));
+            }
+
+            _displayTextProcessor.SetEnabledPlugins(enabledPlugins);
+            SyncEnabledPluginsToConfig();
+            InvalidateProcessedLineCache();
+            if (_quickFilter && !string.IsNullOrEmpty(_quickKeyword))
+                ApplyKeywordFilter();
+            _tailListView.Invalidate();
+            _tailListView.Update();
+            RebuildPluginMenu();
+        }
+
+        /// <summary>
+        /// 将当前启用插件顺序写回配置对象。
+        /// </summary>
+        private void SyncEnabledPluginsToConfig()
+        {
+            if (_currentTailConfig == null)
+                return;
+
+            _currentTailConfig.EnabledDisplayPlugins = _displayTextProcessor.EnabledPlugins
+                .Select(x => x.DisplayName)
+                .ToList();
+        }
+
+        /// <summary>
+        /// 清理处理后文本缓存。
+        /// </summary>
+        private void InvalidateProcessedLineCache()
+        {
+            _displayTextProcessor.ClearCache();
+        }
+
+        /// <summary>
+        /// 把虚拟索引映射为实际显示索引。
+        /// </summary>
+        private int ResolveDisplayIndex(int virtualIndex)
+        {
+            if (_quickFilter && !string.IsNullOrEmpty(_quickKeyword))
+            {
+                if (_filteredIndexMap.TryGetValue(virtualIndex, out int displayIndex))
+                    return displayIndex;
+            }
+            return virtualIndex;
+        }
+
+        /// <summary>
+        /// 获取指定显示索引对应的原始行文本。
+        /// </summary>
+        private string GetRawLineTextByDisplayIndex(int displayIndex)
+        {
+            if (_logFileCache == null || _logFileStream == null)
+                return string.Empty;
+
+            ListViewItem cachedItem = _logFileCache.LookupCache(displayIndex);
+            if (cachedItem != null)
+                return cachedItem.Text ?? string.Empty;
+
+            if (_logFileCache.FillCache(_logFileStream, displayIndex) != -1)
+            {
+                cachedItem = _logFileCache.LookupCache(displayIndex);
+                if (cachedItem != null)
+                    return cachedItem.Text ?? string.Empty;
+            }
+
+            int fileLineNumber = _savedLineNumber + displayIndex + 1;
+            string rawLine = _logFileStream.ReadLine(fileLineNumber);
+            if (rawLine == null)
+                rawLine = string.Empty;
+
+            ListViewItem newItem = new ListViewItem(rawLine);
+            newItem.SubItems.Add(string.Empty);
+            _logFileCache.SetLastCacheMiss(displayIndex, newItem);
+            return rawLine;
+        }
+
+        /// <summary>
+        /// 获取虚拟索引对应的处理后文本。
+        /// </summary>
+        private string GetProcessedLineTextByVirtualIndex(int virtualIndex)
+        {
+            int displayIndex = ResolveDisplayIndex(virtualIndex);
+            return GetProcessedLineTextByDisplayIndex(displayIndex);
+        }
+
+        /// <summary>
+        /// 获取显示索引对应的处理后文本。
+        /// </summary>
+        private string GetProcessedLineTextByDisplayIndex(int displayIndex)
+        {
+            string rawLine = GetRawLineTextByDisplayIndex(displayIndex);
+            int lineKey = _savedLineNumber + displayIndex + 1;
+            return _displayTextProcessor.GetProcessedLineText(lineKey, rawLine);
+        }
+
+        /// <summary>
+        /// 获取虚拟索引对应的原始文本（用于 Ctrl+C）。
+        /// </summary>
+        private string GetRawLineTextByVirtualIndex(int virtualIndex)
+        {
+            int displayIndex = ResolveDisplayIndex(virtualIndex);
+            return GetRawLineTextByDisplayIndex(displayIndex);
         }
 
         private Color GetContrastColor(Color color)
@@ -222,6 +403,8 @@ namespace SnakeTail
         {
             _configPath = configPath;
             _currentTailConfig = tailConfig;
+            if (_currentTailConfig.EnabledDisplayPlugins == null)
+                _currentTailConfig.EnabledDisplayPlugins = new List<string>();
 
             try
             {
@@ -383,6 +566,10 @@ namespace SnakeTail
             if (!string.IsNullOrEmpty(tailConfig.ServiceName))
                 _taskMonitor = new TaskMonitor(tailConfig.ServiceName, tailConfig.ServiceMachineName);
 
+            // 重新加载显示插件并恢复启用顺序
+            InitializeDisplayPlugins(tailConfig);
+            InvalidateProcessedLineCache();
+
             _formTitleMatchFilename = tailConfig.TitleMatchFilename;
             if (_formTitleMatchFilename)
                 _formTitle = Path.GetFileName(_logTailStream.Name);
@@ -491,6 +678,7 @@ namespace SnakeTail
 
             // 文件被重新加载，重置行号偏移量
             _savedLineNumber = 0;
+            InvalidateProcessedLineCache();
 
             SetStatusBar(null);
         }
@@ -742,6 +930,7 @@ namespace SnakeTail
             _logFileCache = new LogFileCache(_currentTailConfig.FileCacheSize);
             _logFileCache.LoadingFileEvent += new EventHandler(_logFileCache_LoadingFileEvent);
             _logFileCache.FillCacheEvent += new EventHandler(_logFileCache_FillCacheEvent);
+            InvalidateProcessedLineCache();
 
             // Reload the view
             _tailListView.Items.Clear();
@@ -833,6 +1022,7 @@ namespace SnakeTail
             tailConfig.FormQuickHighlightColor = _quickHighlightColor;
             tailConfig.QuickFilter = _quickFilter;
             tailConfig.QuickInverse = _quickInverse;
+            tailConfig.EnabledDisplayPlugins = _displayTextProcessor.EnabledPlugins.Select(x => x.DisplayName).ToList();
         }
 
         public void CopySelectionToClipboard()
@@ -901,32 +1091,8 @@ namespace SnakeTail
                     if (i % _logFileCache.Items.Count == 0)
                         SetStatusBar("Searching...", i, endIndex);
 
-                    string lineText = null;
-                    if (searchFileCache == null)
-                    {
-                        ListViewItem lvi = _logFileCache.LookupCache(i);
-                        if (lvi != null)
-                            lineText = lvi.Text;
-                        else
-                        {
-                            // Copy the current cache position, in case the search hit is the next line
-                            searchFileCache = new LogFileCache(_logFileCache.Items.Count);
-                            searchFileCache.Items = _logFileCache.Items.GetRange(0, _logFileCache.Items.Count);
-                            searchFileCache.FirstIndex = _logFileCache.FirstIndex;
-                            searchFileCache.LineOffset = _logFileCache.LineOffset;  // 复制行号偏移量
-                        }
-                    }
-                    if (searchFileCache != null)
-                    {
-                        ListViewItem lvi = searchFileCache.LookupCache(i);
-                        if (lvi == null)
-                        {
-                            searchFileCache.PrepareCache(i, i + searchFileCache.Items.Count / 2, true);
-                            searchFileCache.FillCache(_logFileStream, i + searchFileCache.Items.Count / 2);
-                            lvi = searchFileCache.LookupCache(i);
-                        }
-                        lineText = lvi.Text;
-                    }
+                    // 统一使用处理后文本进行搜索匹配
+                    string lineText = GetProcessedLineTextByVirtualIndex(i);
 
                     if (MatchTextSearch(i, lineText, searchText, matchCase, lineHighlights))
                         return i;
@@ -1034,27 +1200,10 @@ namespace SnakeTail
                 if (i % _logFileCache.Items.Count == 0)
                     SetStatusBar("Searching...", _tailListView.VirtualListSize - i, _tailListView.VirtualListSize);
 
-                string lineText;
-                ListViewItem lvi = _logFileCache.LookupCache(i);
-                if (lvi != null)
+                string lineText = GetProcessedLineTextByVirtualIndex(i);
+                if (MatchTextSearch(i, lineText, searchText, matchCase, lineHighlights))
                 {
-                    lineText = lvi.Text;
-                    if (MatchTextSearch(i, lineText, searchText, matchCase, lineHighlights))
-                    {
-                        return i;
-                    }
-                }
-                else
-                {
-                    int lastMatchFound = SearchForwardForLastMatch(searchText, matchCase, lineHighlights, i + 1);
-                    if (lastMatchFound != -1 && endIndex <= lastMatchFound)
-                    {
-                        return lastMatchFound;
-                    }
-                    else
-                    {
-                        return -1;
-                    }
+                    return i;
                 }
             }
             return -1;
@@ -1090,37 +1239,14 @@ namespace SnakeTail
 
         private void _tailListView_RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs e)
         {
-            int displayIndex = e.ItemIndex;  // 显示列表中的索引
-
-            // 如果启用过滤，需要将虚拟索引映射到过滤后的行号
-            if (_quickFilter && !string.IsNullOrEmpty(_quickKeyword))
+            int displayIndex = ResolveDisplayIndex(e.ItemIndex);
+            if (_quickFilter && !string.IsNullOrEmpty(_quickKeyword) && !_filteredIndexMap.ContainsKey(e.ItemIndex))
             {
-                if (!_filteredIndexMap.ContainsKey(e.ItemIndex))
-                {
-                    // 如果映射不存在，返回空项
-                    ListViewItem lvi = new ListViewItem();
-                    lvi.SubItems.Add("");
-                    lvi.Text = "";
-                    e.Item = lvi;
-                    return;
-                }
-                displayIndex = _filteredIndexMap[e.ItemIndex];
-            }
-
-            // cache 使用显示行号（从 0 开始）
-            e.Item = _logFileCache.LookupCache(displayIndex);
-            if (e.Item != null)
+                ListViewItem emptyItem = new ListViewItem(string.Empty);
+                emptyItem.SubItems.Add(string.Empty);
+                e.Item = emptyItem;
                 return;
-
-            if (_logFileCache.FillCache(_logFileStream, displayIndex) != -1)
-            {
-                e.Item = _logFileCache.LookupCache(displayIndex);
-                if (e.Item != null)
-                    return;
             }
-
-            ListViewItem lvi2 = new ListViewItem();
-            lvi2.SubItems.Add("");
 
             if (!_topIndexHack)
             {
@@ -1130,18 +1256,18 @@ namespace SnakeTail
                 int topIndex = topItem != null ? topItem.Index : 0;
                 if (topItem == null || e.ItemIndex < topIndex || e.ItemIndex > topIndex + 1000)
                 {
-                    // Ignore invalid requests outside the visible zone
-                    lvi2.Text = "";
-                    e.Item = lvi2;
+                    ListViewItem emptyItem = new ListViewItem(string.Empty);
+                    emptyItem.SubItems.Add(string.Empty);
+                    e.Item = emptyItem;
                     return;
                 }
             }
 
-            // 文件读取使用实际行号（显示行号 + 偏移量 + 1）
-            int fileLineNumber = _savedLineNumber + displayIndex + 1;
-            lvi2.Text = _logFileStream.ReadLine(fileLineNumber);      // assign the text to the item
-            _logFileCache.SetLastCacheMiss(displayIndex, lvi2);
-            e.Item = lvi2;
+            string rawLineText = GetRawLineTextByDisplayIndex(displayIndex);
+            string processedText = GetProcessedLineTextByDisplayIndex(displayIndex);
+            ListViewItem displayItem = new ListViewItem(processedText ?? string.Empty);
+            displayItem.SubItems.Add(rawLineText ?? string.Empty);
+            e.Item = displayItem;
         }
 
         private void TailForm_Load(object sender, EventArgs e)
@@ -1350,7 +1476,9 @@ namespace SnakeTail
 
         private void _tailListView_CacheVirtualItems(object sender, CacheVirtualItemsEventArgs e)
         {
-            _logFileCache.PrepareCache(e.StartIndex, e.EndIndex, false);
+            int startIndex = ResolveDisplayIndex(e.StartIndex);
+            int endIndex = ResolveDisplayIndex(e.EndIndex);
+            _logFileCache.PrepareCache(startIndex, endIndex, false);
         }
 
         private void _tailListView_DrawItem(object sender, DrawListViewItemEventArgs e)
@@ -1646,24 +1774,8 @@ namespace SnakeTail
 
             for (int i = 0; i < actualSize; i++)
             {
-                string lineText = null;
-                ListViewItem lvi = _logFileCache.LookupCache(i);
-                if (lvi != null)
-                {
-                    lineText = lvi.Text;
-                }
-                else
-                {
-                    // 如果缓存中没有，尝试读取
-                    try
-                    {
-                        lineText = _logFileStream.ReadLine(i + 1);
-                    }
-                    catch
-                    {
-                        lineText = "";
-                    }
-                }
+                // 过滤统一基于处理后文本
+                string lineText = GetProcessedLineTextByDisplayIndex(i);
 
                 if (lineText != null && MatchesQuickKeyword(lineText))
                 {
@@ -1841,11 +1953,14 @@ namespace SnakeTail
                 }
                 // 否则复制当前行
                 ListViewItem current = _tailListView.FocusedItem ?? (_tailListView.SelectedIndices.Count > 0 ? _tailListView.Items[_tailListView.SelectedIndices[0]] : null);
-                if (current != null && !string.IsNullOrEmpty(current.Text))
+                if (current != null)
                 {
+                    string rawText = current.SubItems.Count > 1 ? current.SubItems[1].Text : GetRawLineTextByVirtualIndex(current.Index);
+                    if (string.IsNullOrEmpty(rawText))
+                        return;
                     try
                     {
-                        ClipboardHelper.CopyToClipboard(current.Text);
+                        ClipboardHelper.CopyToClipboard(rawText);
                         e.Handled = true;
                         e.SuppressKeyPress = true;
                     }
@@ -1965,7 +2080,9 @@ namespace SnakeTail
                 ++displayLineCount;
                 ++actualLineCount;
                 _logFileCache.AppendTailCache(line, displayLineCount);  // cache 使用显示行号
-                TailKeywordConfig keywordMatch = MatchesKeyword(line, false, false);
+                // 新增行的高亮/工具触发统一基于处理后文本
+                string processedLine = _displayTextProcessor.GetProcessedLineText(actualLineCount, line);
+                TailKeywordConfig keywordMatch = MatchesKeyword(processedLine, false, false);
                 if (keywordMatch != null)
                 {
                     if (keywordMatch.LogHitCounter)
@@ -1974,7 +2091,7 @@ namespace SnakeTail
                     {
                         CheckExternalToolResults();
                         if (_threadPoolQueue != null)
-                            _threadPoolQueue.QueueRequest(ExecuteExternalTool, GenerateExternalTool(keywordMatch.ExternalToolConfig, line, actualLineCount, keywordMatch.Keyword));
+                            _threadPoolQueue.QueueRequest(ExecuteExternalTool, GenerateExternalTool(keywordMatch.ExternalToolConfig, processedLine, actualLineCount, keywordMatch.Keyword));
                     }
                     if (keywordMatch.AlertHighlight.Value)
                         warningIcon = true;
@@ -1992,7 +2109,7 @@ namespace SnakeTail
                 else if (displayLineCount == 1 && _savedLineNumber == 0 && _logTailStream.Length == 0)
                 {
                     // Check if the open file error has changed
-                    if (_tailListView.Items[0].Text == _logTailStream.ReadLine(1))
+                    if (GetRawLineTextByVirtualIndex(0) == _logTailStream.ReadLine(1))
                         return;
                 }
                 else if (_logTailStream.ValidLineCount(actualLineCount))
@@ -2003,6 +2120,7 @@ namespace SnakeTail
                 // 文件被截断或重载，重置偏移量
                 displayLineCount = 0;
                 _savedLineNumber = 0;
+                InvalidateProcessedLineCache();
             }
 
             if (_displayTabIcon)
@@ -2027,6 +2145,7 @@ namespace SnakeTail
                 _tailListView.VirtualListSize = displayLineCount;
                 _savedLineNumber = 0;  // 重置偏移量
                 _originalVirtualListSize = 0; // 重置原始大小
+                InvalidateProcessedLineCache();
                 if (_quickFilter)
                 {
                     ApplyKeywordFilter();
@@ -2319,6 +2438,7 @@ namespace SnakeTail
         {
             bool windowsService = _taskMonitor != null && _taskMonitor.ServiceController != null;
             bool pauseAndContinue = _taskMonitor != null && _taskMonitor.CanPauseAndContinue;
+            RebuildPluginMenu();
             // 非系统日志（普通文件日志）不显示 Start Service 和 Stop Service 菜单项
             startServiceToolStripMenuItem.Visible = false;
             stopServiceToolStripMenuItem.Visible = false;
@@ -2616,6 +2736,7 @@ namespace SnakeTail
         private void _keywordTextBox_TextChanged(object sender, EventArgs e)
         {
             _quickKeyword = _keywordTextBox.Text;
+            InvalidateProcessedLineCache();
             if (_quickFilter)
             {
                 ApplyKeywordFilter();
@@ -2651,12 +2772,14 @@ namespace SnakeTail
         private void _filterCheckBox_Click(object sender, EventArgs e)
         {
             _quickFilter = _filterCheckBox.Checked;
+            InvalidateProcessedLineCache();
             ApplyKeywordFilter();
         }
 
         private void _inverseCheckBox_Click(object sender, EventArgs e)
         {
             _quickInverse = _inverseCheckBox.Checked;
+            InvalidateProcessedLineCache();
             if (_quickFilter)
             {
                 ApplyKeywordFilter();
@@ -2697,6 +2820,7 @@ namespace SnakeTail
             _filteredIndexMap.Clear();
             _filteredVirtualListSize = 0;
             _bookmarks.Clear();
+            InvalidateProcessedLineCache();
             _tailListView.Invalidate();
             _tailListView.Update();
 

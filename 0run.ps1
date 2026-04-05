@@ -110,8 +110,7 @@ if ($Test) {
     exit 0
 }
 
-$exeDir = Join-Path $scriptRoot ".temp\bin\$config\net8.0-windows"
-$exe = Join-Path $exeDir "SnakeTail.exe"
+$exe = Join-Path $scriptRoot ".run\SnakeTail.exe"
 if (-not (Test-Path $exe)) {
     throw "未找到可执行文件: $exe"
 }

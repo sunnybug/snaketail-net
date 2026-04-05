@@ -15,6 +15,13 @@
 
 开发时请先执行 `.\script\init_dev.ps1` 初始化 `.run` 并 `dotnet restore`。
 
+## 构建
+
+- `.\script\build.ps1`：按 `Debug` 配置依次构建主程序与 `LongMaidDisplayPlugin` 插件，`SnakeTail.exe` 输出到 `.run\`，插件 DLL 输出到 `.run\config\plugins\龙女仆\`。
+- `.\script\build.ps1 --release`：按 `Release` 配置依次构建主程序与插件，`SnakeTail.exe` 输出到 `.run\`，插件 DLL 输出到 `.run\config\plugins\龙女仆\`。
+- 运行时目标固定为 `win-x64`，构建后会清理 `.run\**\runtimes\` 下非 `win` 与 `win-x64` 目录。
+- 插件目录会在构建后净化，仅保留 `LongMaidDisplayPlugin.*` 与 `s_skill.json`，不会保留 `SnakeTail.*` 等主程序产物。
+
 VS Code 推荐扩展（见 `.vscode/extensions.json`）：**C# Dev Kit**（调试、解决方案与测试）、**C#**（语言服务与代码分析）。
 
 运行/调试：工作目录应为 `.run/`（`0run.ps1` 与 VS Code `launch.json` 已如此配置）。日志写入 `.run/log/`：`YYYY-MM-DD.log`（分级行格式）、`YYYY-MM-DD_crash.log`（未处理异常等）。
@@ -56,3 +63,31 @@ VS Code 推荐扩展（见 `.vscode/extensions.json`）：**C# Dev Kit**（调�
 - 支持 Windows 2000、XP、2003、Vista、Win2k8、Win7
 - 需要 .NET 2.0
 - GNU GPL 许可证 v3
+
+## 显示插件（TailForm）
+
+- 作用域：仅文件日志窗口 `TailForm`，不扩展到 `EventLogForm`。
+- 目录约定：`config/plugins/<插件名>/`。
+- 发现规则：宿主启动/重载配置时扫描每个一级子目录中的 `*.dll`，查找首个实现 `ILogDisplayPlugin` 的类型。
+- 菜单行为：右键菜单与主菜单同步出现“插件”子菜单，按勾选顺序决定插件执行顺序。
+- 状态持久化：每个文件配置保存 `EnabledDisplayPlugins`，重启后打开同一配置会自动恢复启用顺序。
+- 处理边界：插件只改“显示链路文本”和文本匹配行为，不改原始日志文件、原始行号和定位模型。
+
+### 文本行为口径
+
+- 基于处理后文本：
+  - 列表显示
+  - 快速过滤 / 反选过滤
+  - 搜索（正向/反向）
+  - 快速高亮与配置关键字高亮
+  - 命中计数与外部工具触发
+  - 右键菜单“复制（处理后文本）”
+- 仍基于原始文本：
+  - `Ctrl+C`（含行内双击选词后的快捷键复制）
+
+### 示例插件：龙女仆
+
+- 插件目录：`config/plugins/龙女仆/`
+- 配置文件：`s_skill.json`，读取 `s_skill[*][0]=技能ID`、`s_skill[*][1]=技能名`
+- 处理规则：命中 `skills: <数字>` 且存在映射时，显示为 `skills: <数字> <技能名>`；未知 ID 保持原样。
+

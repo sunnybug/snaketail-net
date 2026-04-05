@@ -21,7 +21,7 @@ function Publish-ReleaseToDist {
     & $buildScript -Release
     if ($LASTEXITCODE -ne 0) { throw "Release 构建失败" }
 
-    $outDir = Join-Path $repoRoot ".temp\bin\Release\net8.0-windows"
+    $outDir = Join-Path $repoRoot ".run"
     if (-not (Test-Path (Join-Path $outDir "SnakeTail.exe"))) {
         throw "未找到构建输出: $outDir\SnakeTail.exe"
     }
@@ -31,7 +31,8 @@ function Publish-ReleaseToDist {
         Remove-Item -LiteralPath $distDir -Recurse -Force
     }
     New-Item -ItemType Directory -Path $distDir -Force | Out-Null
-    Copy-Item -Path (Join-Path $outDir '*') -Destination $distDir -Recurse -Force
+    # 排除运行日志目录，避免把本地日志带入发布包
+    Get-ChildItem -LiteralPath $outDir -Force | Where-Object { $_.Name -ne "log" } | Copy-Item -Destination $distDir -Recurse -Force
     Write-Host "已发布到: $distDir" -ForegroundColor Green
 }
 

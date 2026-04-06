@@ -66,7 +66,8 @@ namespace SnakeTail
                 catch (Exception ex)
                 {
                     AppLog.AppendCrash(ex, "SnakeTail startup");
-                    MessageBox.Show(ex.ToString(), "SnakeTail 启动异常", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    // 启动阶段也绑定 owner，避免弹窗被遮挡
+                    MessageBox.Show(DialogOwner.Resolve(), ex.ToString(), "SnakeTail 启动异常", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
         }
@@ -204,6 +205,7 @@ namespace SnakeTail
                 AppLog.AppendCrash(ex, "--- Dialog failed ---" + Environment.NewLine + dialogEx);
                 string crashPath = AppLog.GetCrashLogFilePath();
                 MessageBox.Show(
+                    DialogOwner.Resolve(),
                     "无法显示错误报告对话框。" + Environment.NewLine + Environment.NewLine +
                     "原始异常: " + (ex?.Message ?? "null") + Environment.NewLine + Environment.NewLine +
                     "详细已写入: " + crashPath,

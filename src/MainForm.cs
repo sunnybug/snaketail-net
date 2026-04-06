@@ -819,8 +819,30 @@ namespace SnakeTail
             if (tailConfig == null)
                 return;
 
-            string basePath = Path.GetDirectoryName(Application.ExecutablePath) ?? "";
+            // 启动时优先使用工作目录下的 config，不存在时回退到 exe 目录。
+            string basePath = ResolveStartupConfigBasePath();
             LoadSessionWithConfig(tailConfig, basePath);
+        }
+
+        /// <summary>
+        /// 解析启动时配置基路径：优先工作目录，其次 exe 目录。
+        /// </summary>
+        private static string ResolveStartupConfigBasePath()
+        {
+            // 先检查当前工作目录是否包含 config。
+            string currentDirectory = Directory.GetCurrentDirectory();
+            string currentConfigPath = Path.Combine(currentDirectory, "config");
+            if (Directory.Exists(currentConfigPath))
+                return currentDirectory;
+
+            // 工作目录缺失时，再检查 exe 所在目录是否包含 config。
+            string executableDirectory = Path.GetDirectoryName(Application.ExecutablePath) ?? string.Empty;
+            string executableConfigPath = Path.Combine(executableDirectory, "config");
+            if (!string.IsNullOrEmpty(executableDirectory) && Directory.Exists(executableConfigPath))
+                return executableDirectory;
+
+            // 两处都不存在时，保持工作目录行为，避免路径突变。
+            return currentDirectory;
         }
 
         /// <summary>
@@ -1327,10 +1349,10 @@ namespace SnakeTail
             }
             catch(Exception ex)
             {
-                // 使用 null 作为 owner，避免在窗口关闭时出现问题
+                // 关闭阶段也尽量绑定 owner，避免弹窗丢失焦点
                 try
                 {
-                    MessageBox.Show(null, "Failed to save list of recently used files.\n\n" + ex.Message, "", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show(DialogOwner.Resolve(), "Failed to save list of recently used files.\n\n" + ex.Message, "", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
                 catch
                 {

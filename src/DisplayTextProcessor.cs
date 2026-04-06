@@ -36,7 +36,7 @@ namespace SnakeTail
         /// <summary>
         /// 获取处理后文本；无插件或不命中时返回原文。
         /// </summary>
-        public string GetProcessedLineText(int lineKey, string rawLineText)
+        public string GetProcessedLineText(int lineKey, string rawLineText, Func<int, string> readLineByLineKey = null)
         {
             if (rawLineText == null)
                 rawLineText = string.Empty;
@@ -56,10 +56,28 @@ namespace SnakeTail
                 if (plugin == null)
                     continue;
 
+                // 块插件优先尝试收集整块文本，确保按插件顺序决定输入粒度。
+                string textForPlugin = currentText;
+                if (plugin is ILogDisplayBlockPlugin blockPlugin && readLineByLineKey != null)
+                {
+                    try
+                    {
+                        if (blockPlugin.TryCollectBlock(lineKey, rawLineText, readLineByLineKey, out string blockText)
+                            && !string.IsNullOrEmpty(blockText))
+                        {
+                            textForPlugin = blockText;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        AppLog.AppendDaily(AppLog.LevelErr, string.Format("插件 TryCollectBlock 失败: Plugin={0}, LineKey={1}, Error={2}: {3}", loadedPlugin.DisplayName, lineKey, ex.GetType().FullName, ex.Message));
+                    }
+                }
+
                 bool canProcess;
                 try
                 {
-                    canProcess = plugin.CanProcess(currentText);
+                    canProcess = plugin.CanProcess(textForPlugin);
                 }
                 catch (Exception ex)
                 {
@@ -73,7 +91,7 @@ namespace SnakeTail
                 PluginProcessResult result;
                 try
                 {
-                    result = plugin.TryProcess(currentText);
+                    result = plugin.TryProcess(textForPlugin);
                 }
                 catch (Exception ex)
                 {

@@ -46,6 +46,36 @@ public class DisplayTextProcessorTests
         Assert.Equal(2, plugin.TryProcessCallCount);
     }
 
+    [Fact]
+    public void Processor_should_prefer_block_plugin_input_when_plugin_ordered_first()
+    {
+        // 验证块插件在前时，会先收集整块并阻断后续单行插件。
+        var blockPlugin = new BlockCollectPlugin();
+        var linePlugin = new CountingPlugin("P2", canProcess: true, handled: true, output: "line");
+        var processor = new DisplayTextProcessor();
+        processor.SetEnabledPlugins(
+        [
+            new LoadedDisplayPlugin("A", "A", "BlockFirst", blockPlugin),
+            new LoadedDisplayPlugin("B", "B", "LineSecond", linePlugin)
+        ]);
+
+        var lines = new Dictionary<int, string>
+        {
+            [100] = "2026-04-05 14:50:15.208\txxxx",
+            [101] = "xxxx",
+            [102] = "2026-04-05 15:50:15.208\tyyy"
+        };
+
+        string output = processor.GetProcessedLineText(
+            100,
+            lines[100],
+            lineKey => lines.TryGetValue(lineKey, out string? text) ? text : string.Empty);
+
+        Assert.Equal("BLOCK_OK", output);
+        Assert.Equal(1, blockPlugin.TryProcessCallCount);
+        Assert.Equal(0, linePlugin.TryProcessCallCount);
+    }
+
     private sealed class CountingPlugin : ILogDisplayPlugin
     {
         private readonly bool _canProcess;
@@ -77,6 +107,35 @@ public class DisplayTextProcessorTests
         {
             TryProcessCallCount++;
             return new PluginProcessResult { Handled = _handled, Output = _output };
+        }
+    }
+
+    private sealed class BlockCollectPlugin : ILogDisplayPlugin, ILogDisplayBlockPlugin
+    {
+        public string Name => "BlockCollect";
+        public int TryProcessCallCount { get; private set; }
+
+        public void Initialize(PluginContext context)
+        {
+            // 测试插件无需初始化逻辑
+        }
+
+        public bool TryCollectBlock(int lineKey, string currentLine, Func<int, string> readLineByLineKey, out string blockText)
+        {
+            string secondLine = readLineByLineKey(lineKey + 1);
+            blockText = string.Join(Environment.NewLine, currentLine, secondLine);
+            return true;
+        }
+
+        public bool CanProcess(string line)
+        {
+            return line.Contains(Environment.NewLine);
+        }
+
+        public PluginProcessResult TryProcess(string line)
+        {
+            TryProcessCallCount++;
+            return new PluginProcessResult { Handled = true, Output = "BLOCK_OK" };
         }
     }
 }

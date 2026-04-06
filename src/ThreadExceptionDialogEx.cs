@@ -285,7 +285,7 @@ namespace SnakeTail
                 if (String.IsNullOrEmpty(tagName))
                 {
                     if (PromptAlways)
-                        MessageBox.Show("无法获取最新版本信息（暂无发布）。", "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        MessageBox.Show(DialogOwner.Resolve(), "无法获取最新版本信息（暂无发布）。", "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
                 }
 
@@ -293,7 +293,7 @@ namespace SnakeTail
                 if (!Version.TryParse(versionStr, out Version latestVer))
                 {
                     if (PromptAlways)
-                        MessageBox.Show("当前已是最新版本。", "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        MessageBox.Show(DialogOwner.Resolve(), "当前已是最新版本。", "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
                 }
 
@@ -303,30 +303,30 @@ namespace SnakeTail
                     string message = "新版本 " + latestVer.ToString() + " 已发布。";
                     if (!String.IsNullOrEmpty(htmlUrl))
                     {
-                        DialogResult res = MessageBox.Show(message + "\n\n是否打开 GitHub 发布页查看并下载？", "发现新版本", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+                        DialogResult res = MessageBox.Show(DialogOwner.Resolve(), message + "\n\n是否打开 GitHub 发布页查看并下载？", "发现新版本", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
                         if (res == DialogResult.OK)
                             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(htmlUrl) { UseShellExecute = true });
                     }
                     else
                     {
-                        MessageBox.Show(message + "\n\n请访问 https://github.com/sunnybug/snaketail-net/releases 下载。", "发现新版本", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        MessageBox.Show(DialogOwner.Resolve(), message + "\n\n请访问 https://github.com/sunnybug/snaketail-net/releases 下载。", "发现新版本", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
                     return;
                 }
 
                 if (PromptAlways)
-                    MessageBox.Show("当前已是最新版本。", "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBox.Show(DialogOwner.Resolve(), "当前已是最新版本。", "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (WebException ex)
             {
                 string msg = (ex.Response is HttpWebResponse http && http.StatusCode == System.Net.HttpStatusCode.NotFound)
                     ? "暂无发布版本。"
                     : "无法检查更新（网络或服务器错误）。";
-                MessageBox.Show(msg, "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(DialogOwner.Resolve(), msg, "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
             catch (JsonException)
             {
-                MessageBox.Show("无法解析更新信息。", "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(DialogOwner.Resolve(), "无法解析更新信息。", "检查更新", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
     }

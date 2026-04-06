@@ -27,6 +27,8 @@ VS Code 推荐扩展（见 `.vscode/extensions.json`）：**C# Dev Kit**（调�
 
 运行/调试：工作目录应为 `.run/`（`0run.ps1` 与 VS Code `launch.json` 已如此配置）。日志写入 `.run/log/`：`YYYY-MM-DD.log`（分级行格式）、`YYYY-MM-DD_crash.log`（未处理异常等）。
 
+启动配置目录解析规则（启动恢复默认会话时）：优先使用工作目录下的 `config/`；若工作目录不存在 `config/`，则回退到 `SnakeTail.exe` 所在目录下的 `config/`。
+
 ## 轮询与空闲 CPU
 
 - 文件日志窗口的默认轮询参数：`FileChangeCheckInterval=500ms`、`FileCheckInterval=10s`。
@@ -56,6 +58,11 @@ VS Code 推荐扩展（见 `.vscode/extensions.json`）：**C# Dev Kit**（调�
 - 跟踪日志目录，显示最新的日志文件（支持通配符）
 - 清空显示区域（快捷键 Ctrl+L）：记住当前读取的log文件位置，清空当前log的显示区域，从前一次读取的log文件位置继续读取
 - 在整个文本日志文件（或 Windows 事件日志）中搜索
+  - 长时间全文搜索会定期处理界面消息，避免窗口看起来卡死
+  - 未启用显示插件时优先直接搜索原始文本，减少大文件搜索的额外开销
+  - 反向搜索改为单次顺序扫描后取最后命中，避免按递减行号反复从文件头重读
+  - 搜索未命中改为搜索窗内联提示，不再弹模态框，避免提示不可见时把界面卡住
+- 全局对话框（`MessageBox`）统一绑定 owner（主窗体/活动窗体/前台窗口兜底），减少弹窗被遮挡或假死观感
 - 当检测到文件更改时，使用图标高亮窗口标签页
 - 通过简单的拖放操作从 Windows 资源管理器跟踪新日志文件
 - 使用正则表达式过滤 Windows 事件日志
@@ -93,9 +100,20 @@ VS Code 推荐扩展（见 `.vscode/extensions.json`）：**C# Dev Kit**（调�
 - 仍基于原始文本：
   - `Ctrl+C`（含行内双击选词后的快捷键复制）
 
+### 插件触发规则（含多行块）
+
+- 保持插件启用顺序语义：前面的插件先拿到输入并先决定是否 `Handled`。
+- 新增可选块提取能力：实现 `ILogDisplayBlockPlugin` 的插件可在当前行命中后，向后收集完整文本块再进入 `CanProcess/TryProcess`。
+- 当块插件排在前面且成功 `Handled` 时，后续单行插件不会再处理该次输入。
+- 未实现块提取接口的插件保持原有单行行为，不受影响。
+
 ### 示例插件：龙女仆
 
 - 插件目录：`config/plugins/龙女仆/`
-- 配置文件：`s_skill.json`，读取 `s_skill[*][0]=技能ID`、`s_skill[*][1]=技能名`
-- 处理规则：命中 `skills: <数字>` 或 `passive_skill: <数字>` 且存在映射时，显示为 `键名: <数字> <技能名>`；未知 ID（如 `passive_skill: 0`）保持原样。
+- 配置文件：
+  - `s_skill.json`：读取 `s_skill[*][0]=技能ID`、`s_skill[*][1]=技能名`
+  - `s_battle_power.json`（可选）：读取 `s_battle_power[*][0]=key`、`s_battle_power[*][5]=名称`
+- 处理规则：
+  - 单行：命中 `skills: <数字>` 或 `passive_skill: <数字>` 且存在映射时，显示为 `键名: <数字> <技能名>`；未知 ID（如 `passive_skill: 0`）保持原样。
+  - 多行块：命中 `attr_data=effects {` 起始并收集连续 `effects` 结构块后，把 `key: <数字>` 扩展为 `key: <数字> <名称>`（如 `key: 1 声明`）。
 

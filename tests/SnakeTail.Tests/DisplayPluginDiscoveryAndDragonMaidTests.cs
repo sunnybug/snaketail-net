@@ -132,6 +132,53 @@ public class DisplayPluginDiscoveryAndDragonMaidTests
         }
     }
 
+    [Fact]
+    public void DragonMaid_should_expand_battle_effect_key_name_for_multiline_block()
+    {
+        // 验证 effects 多行块可按 key 映射扩展名称。
+        string tempRoot = Path.Combine(Path.GetTempPath(), "snaketail-plugin-test-" + Guid.NewGuid().ToString("N"));
+        string pluginDir = Path.Combine(tempRoot, "config", "plugins", "龙女仆");
+        Directory.CreateDirectory(pluginDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(pluginDir, "s_skill.json"), """{"s_skill":[[10009001,"圣剑斩"]] }""");
+            File.WriteAllText(Path.Combine(pluginDir, "s_battle_power.json"), """{"s_battle_power":[[1,1,1,0,0,"声明","",1],[2,1,1,0,0,"攻击","",1]]}""");
+
+            var plugin = new DragonMaidDisplayPlugin();
+            var context = new PluginContext(pluginDir, Path.Combine(tempRoot, "config"), Path.Combine(tempRoot, "fake.log"), "1.0.0");
+            plugin.Initialize(context);
+
+            var lines = new Dictionary<int, string>
+            {
+                [200] = "attr_data=effects {",
+                [201] = "  key: 1",
+                [202] = "  value: 7153731",
+                [203] = "}",
+                [204] = "effects {",
+                [205] = "  key: 2",
+                [206] = "  value: 46304",
+                [207] = "}",
+                [208] = "2026-04-05 15:50:15.208\tyyy"
+            };
+
+            bool collected = ((ILogDisplayBlockPlugin)plugin).TryCollectBlock(
+                200,
+                lines[200],
+                lineKey => lines.TryGetValue(lineKey, out string? text) ? text : string.Empty,
+                out string blockText);
+
+            Assert.True(collected);
+            PluginProcessResult result = plugin.TryProcess(blockText);
+            Assert.True(result.Handled);
+            Assert.Contains("key: 1 声明", result.Output);
+            Assert.Contains("key: 2 攻击", result.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     public sealed class TestAssemblyPlugin : ILogDisplayPlugin
     {
         public string Name => "TestAssemblyPlugin";

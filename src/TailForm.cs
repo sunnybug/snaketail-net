@@ -306,7 +306,56 @@ namespace SnakeTail
         {
             string rawLine = GetRawLineTextByDisplayIndex(displayIndex);
             int lineKey = _savedLineNumber + displayIndex + 1;
-            return _displayTextProcessor.GetProcessedLineText(lineKey, rawLine);
+            return _displayTextProcessor.GetProcessedLineText(lineKey, rawLine, ReadRawLineTextByLineKey);
+        }
+
+        /// <summary>
+        /// 搜索时按场景选择最轻的文本来源。
+        /// </summary>
+        private string GetSearchLineTextByVirtualIndex(int virtualIndex, bool lineHighlights)
+        {
+            if (lineHighlights || _displayTextProcessor.EnabledPlugins.Count > 0)
+                return GetProcessedLineTextByVirtualIndex(virtualIndex);
+
+            return GetRawLineTextByVirtualIndex(virtualIndex);
+        }
+
+        /// <summary>
+        /// 普通文本搜索且无插件/过滤时，允许直接顺序扫原文。
+        /// </summary>
+        private bool CanUseDirectRawSearch(bool lineHighlights)
+        {
+            return !lineHighlights
+                && !_quickFilter
+                && _displayTextProcessor.EnabledPlugins.Count == 0
+                && _logFileStream != null;
+        }
+
+        /// <summary>
+        /// 长时间搜索时定期让 UI 处理消息，避免窗口假死。
+        /// </summary>
+        private static void PumpSearchUiIfNeeded(ref int lastPumpTick)
+        {
+            int currentTick = Environment.TickCount;
+            if (unchecked(currentTick - lastPumpTick) < 50)
+                return;
+
+            Application.DoEvents();
+            lastPumpTick = currentTick;
+        }
+
+        /// <summary>
+        /// 按绝对行号读取原始文本，供块插件向后收集整块内容。
+        /// </summary>
+        private string ReadRawLineTextByLineKey(int lineKey)
+        {
+            if (lineKey <= 0)
+                return string.Empty;
+
+            string line = _logTailStream != null ? _logTailStream.ReadLine(lineKey) : null;
+            if (line == null && _logFileStream != null)
+                line = _logFileStream.ReadLine(lineKey);
+            return line ?? string.Empty;
         }
 
         /// <summary>
@@ -1087,19 +1136,30 @@ namespace SnakeTail
         private int SearchForTextForward(string searchText, bool matchCase, bool lineHighlights, int startIndex, int endIndex, ref LogFileCache searchFileCache)
         {
             int i = 0;
+            int lastPumpTick = Environment.TickCount;
 
             try
             {
+                if (CanUseDirectRawSearch(lineHighlights))
+                {
+                    return SearchForRawTextForward(searchText, matchCase, startIndex, endIndex, ref lastPumpTick);
+                }
+
                 for (i = startIndex; i < endIndex; ++i)
                 {
                     if (i % _logFileCache.Items.Count == 0)
+                    {
                         SetStatusBar("Searching...", i, endIndex);
+                        PumpSearchUiIfNeeded(ref lastPumpTick);
+                    }
 
-                    // 统一使用处理后文本进行搜索匹配
-                    string lineText = GetProcessedLineTextByVirtualIndex(i);
+                    // 搜索文本按启用功能选择原文或处理后文本。
+                    string lineText = GetSearchLineTextByVirtualIndex(i, lineHighlights);
 
                     if (MatchTextSearch(i, lineText, searchText, matchCase, lineHighlights))
                         return i;
+
+                    PumpSearchUiIfNeeded(ref lastPumpTick);
                 }
             }
             catch (Exception ex)
@@ -1138,6 +1198,30 @@ namespace SnakeTail
             return -1;
         }
 
+        /// <summary>
+        /// 直接顺序扫描原始文本，避免搜索期间反复走缓存与显示处理链。
+        /// </summary>
+        private int SearchForRawTextForward(string searchText, bool matchCase, int startIndex, int endIndex, ref int lastPumpTick)
+        {
+            for (int i = startIndex; i < endIndex; ++i)
+            {
+                if (i % _logFileCache.Items.Count == 0)
+                {
+                    SetStatusBar("Searching...", i, endIndex);
+                    PumpSearchUiIfNeeded(ref lastPumpTick);
+                }
+
+                int lineNumber = _savedLineNumber + i + 1;
+                string lineText = _logFileStream.ReadLine(lineNumber) ?? string.Empty;
+                if (MatchTextSearch(i, lineText, searchText, matchCase, false))
+                    return i;
+
+                PumpSearchUiIfNeeded(ref lastPumpTick);
+            }
+
+            return -1;
+        }
+
         public bool SearchForText(string searchText, bool matchCase, bool searchForward, bool lineHighlights, bool wrapAround)
         {
             if (_tailListView.VirtualListSize == 0)
@@ -1157,11 +1241,11 @@ namespace SnakeTail
             int matchFound = -1;
             if (!searchForward)
             {
-                matchFound = SearchForTextBackward(searchText, matchCase, lineHighlights, startIndex - 1, 0);
+                matchFound = SearchForTextBackward(searchText, matchCase, lineHighlights, 0, startIndex);
                 //Retry if not found
                 if (matchFound == -1 && wrapAround)
                 {
-                    matchFound = SearchForTextBackward(searchText, matchCase, lineHighlights, _tailListView.VirtualListSize - 1, startIndex);
+                    matchFound = SearchForTextBackward(searchText, matchCase, lineHighlights, startIndex + 1, _tailListView.VirtualListSize);
                 }
             }
             else
@@ -1197,47 +1281,36 @@ namespace SnakeTail
 
         private int SearchForTextBackward(string searchText, bool matchCase, bool lineHighlights, int startIndex, int endIndex)
         {
-            // First use the visual cache, when that have failed, then revert to search from the beginning
-            // and find the last match
-            for (int i = startIndex; i >= endIndex; --i)
+            if (startIndex >= endIndex)
+                return -1;
+
+            // 反向搜索改为正向扫描记录最后命中，避免按递减行号反复从文件头重读。
+            int lastPumpTick = Environment.TickCount;
+            int lastMatchFound = -1;
+            for (int i = startIndex; i < endIndex; ++i)
             {
                 if (i % _logFileCache.Items.Count == 0)
-                    SetStatusBar("Searching...", _tailListView.VirtualListSize - i, _tailListView.VirtualListSize);
+                {
+                    SetStatusBar("Searching...", i, endIndex);
+                    PumpSearchUiIfNeeded(ref lastPumpTick);
+                }
 
-                string lineText = GetProcessedLineTextByVirtualIndex(i);
+                string lineText;
+                if (CanUseDirectRawSearch(lineHighlights))
+                {
+                    int lineNumber = _savedLineNumber + i + 1;
+                    lineText = _logFileStream.ReadLine(lineNumber) ?? string.Empty;
+                }
+                else
+                {
+                    lineText = GetSearchLineTextByVirtualIndex(i, lineHighlights);
+                }
+
                 if (MatchTextSearch(i, lineText, searchText, matchCase, lineHighlights))
-                {
-                    return i;
-                }
+                    lastMatchFound = i;
+
+                PumpSearchUiIfNeeded(ref lastPumpTick);
             }
-            return -1;
-        }
-
-        private int SearchForwardForLastMatch(string searchText, bool matchCase, bool lineHighlights, int endIndex)
-        {
-            LogFileCache searchFileCache = null;
-            int matchFound = -1;
-            int lastMatchFound = -1;
-            int startIndex = 0;
-            do
-            {
-                matchFound = SearchForTextForward(searchText, matchCase, lineHighlights, startIndex, endIndex, ref searchFileCache);
-                if (matchFound != -1)
-                {
-                    lastMatchFound = matchFound;
-                    startIndex = matchFound + 1;
-                    _tailListView.SelectedIndices.Clear();
-                    if (searchFileCache != null)
-                    {
-                        _logFileCache = searchFileCache; // Store the cache of the last match
-                        searchFileCache = new LogFileCache(_logFileCache.Items.Count);
-                        searchFileCache.Items = _logFileCache.Items.GetRange(0, _logFileCache.Items.Count);
-                        searchFileCache.FirstIndex = _logFileCache.FirstIndex;
-                        searchFileCache.LineOffset = _logFileCache.LineOffset;  // 复制行号偏移量
-                    }
-                }
-            } while (matchFound != -1);
-
             return lastMatchFound;
         }
 
@@ -2085,7 +2158,7 @@ namespace SnakeTail
                 ++actualLineCount;
                 _logFileCache.AppendTailCache(line, displayLineCount);  // cache 使用显示行号
                 // 新增行的高亮/工具触发统一基于处理后文本
-                string processedLine = _displayTextProcessor.GetProcessedLineText(actualLineCount, line);
+                string processedLine = _displayTextProcessor.GetProcessedLineText(actualLineCount, line, ReadRawLineTextByLineKey);
                 TailKeywordConfig keywordMatch = MatchesKeyword(processedLine, false, false);
                 if (keywordMatch != null)
                 {

@@ -7,12 +7,22 @@ namespace LongMaidDisplayPlugin
     /// <summary>
     /// 龙女仆示例插件：把 skills: 数字 扩展为附加技能名。
     /// </summary>
-    public sealed class DragonMaidDisplayPlugin : ILogDisplayPlugin
+    public sealed class DragonMaidDisplayPlugin : ILogDisplayPlugin, ILogDisplayBlockPlugin
     {
         // 统一匹配 skills/passive_skill 两种键名。
         private static readonly Regex SkillRegex = new Regex(@"(?<key>skills|passive_skill):\s*(?<id>\d+)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        // 匹配战力属性块起始行。
+        private static readonly Regex BattleEffectsBlockStartRegex = new Regex(@"^\s*attr_data=effects\s*\{\s*$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        // 匹配战力属性块中允许出现的行。
+        private static readonly Regex BattleEffectsBlockLineRegex = new Regex(@"^\s*(attr_data=effects|effects)\s*\{\s*$|^\s*key:\s*\d+\s*$|^\s*value:\s*\d+\s*$|^\s*\}\s*$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        // 匹配下一条日志时间头，用于块边界切分。
+        private static readonly Regex TimestampHeadRegex = new Regex(@"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\t", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        // 匹配战力属性块中的 key 行。
+        private static readonly Regex BattleEffectsKeyRegex = new Regex(@"(?m)^(?<indent>\s*key:\s*)(?<id>\d+)\s*$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
         private readonly Dictionary<int, string> _skillMap = new Dictionary<int, string>();
+        private readonly Dictionary<int, string> _battlePowerMap = new Dictionary<int, string>();
         private string _jsonPath = string.Empty;
+        private string _battlePowerJsonPath = string.Empty;
 
         public string Name => "龙女仆";
 
@@ -22,7 +32,9 @@ namespace LongMaidDisplayPlugin
         public void Initialize(PluginContext context)
         {
             _skillMap.Clear();
+            _battlePowerMap.Clear();
             _jsonPath = Path.Combine(context.PluginDirectoryAbsolutePath, "s_skill.json");
+            _battlePowerJsonPath = Path.Combine(context.PluginDirectoryAbsolutePath, "s_battle_power.json");
             if (!File.Exists(_jsonPath))
                 throw new FileNotFoundException("未找到 s_skill.json", _jsonPath);
 
@@ -50,6 +62,68 @@ namespace LongMaidDisplayPlugin
 
                 _skillMap[skillId] = skillName;
             }
+
+            // s_battle_power.json 为可选配置，存在时启用 effects 块 key 映射。
+            if (File.Exists(_battlePowerJsonPath))
+            {
+                string battleJsonText = File.ReadAllText(_battlePowerJsonPath);
+                using JsonDocument battleDocument = JsonDocument.Parse(battleJsonText);
+                if (!battleDocument.RootElement.TryGetProperty("s_battle_power", out JsonElement battlePowerElement) || battlePowerElement.ValueKind != JsonValueKind.Array)
+                    throw new InvalidOperationException("s_battle_power.json 缺少 s_battle_power 数组");
+
+                foreach (JsonElement row in battlePowerElement.EnumerateArray())
+                {
+                    if (row.ValueKind != JsonValueKind.Array || row.GetArrayLength() < 6)
+                        continue;
+
+                    JsonElement idElement = row[0];
+                    JsonElement nameElement = row[5];
+                    if (idElement.ValueKind != JsonValueKind.Number || nameElement.ValueKind != JsonValueKind.String)
+                        continue;
+
+                    if (!idElement.TryGetInt32(out int battlePowerId))
+                        continue;
+
+                    string? battlePowerName = nameElement.GetString();
+                    if (string.IsNullOrWhiteSpace(battlePowerName))
+                        continue;
+
+                    _battlePowerMap[battlePowerId] = battlePowerName;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 命中 attr_data=effects 起始行时，向后收集完整 effects 属性块。
+        /// </summary>
+        public bool TryCollectBlock(int lineKey, string currentLine, Func<int, string> readLineByLineKey, out string blockText)
+        {
+            blockText = string.Empty;
+            if (string.IsNullOrEmpty(currentLine) || !BattleEffectsBlockStartRegex.IsMatch(currentLine))
+                return false;
+
+            const int maxBlockLines = 600;
+            List<string> lines = new List<string>(64) { currentLine };
+            for (int offset = 1; offset < maxBlockLines; offset++)
+            {
+                string nextLine = readLineByLineKey(lineKey + offset);
+                if (string.IsNullOrEmpty(nextLine))
+                    break;
+
+                if (TimestampHeadRegex.IsMatch(nextLine))
+                    break;
+
+                if (!BattleEffectsBlockLineRegex.IsMatch(nextLine))
+                    break;
+
+                lines.Add(nextLine);
+            }
+
+            if (lines.Count <= 1)
+                return false;
+
+            blockText = string.Join(Environment.NewLine, lines);
+            return true;
         }
 
         /// <summary>
@@ -59,7 +133,9 @@ namespace LongMaidDisplayPlugin
         {
             if (string.IsNullOrEmpty(line))
                 return false;
-            return SkillRegex.IsMatch(line);
+
+            // 兼容单行技能映射与多行 effects 块映射两类输入。
+            return SkillRegex.IsMatch(line) || (line.Contains(Environment.NewLine) && BattleEffectsKeyRegex.IsMatch(line));
         }
 
         /// <summary>
@@ -69,6 +145,31 @@ namespace LongMaidDisplayPlugin
         {
             if (string.IsNullOrEmpty(line))
                 return new PluginProcessResult { Handled = false, Output = line };
+
+            // 多行 effects 块：把 key: 数字 映射为 key: 数字 名称。
+            if (line.Contains(Environment.NewLine) && BattleEffectsKeyRegex.IsMatch(line))
+            {
+                string blockOutput = BattleEffectsKeyRegex.Replace(line, match =>
+                {
+                    string idText = match.Groups["id"].Value;
+                    if (!int.TryParse(idText, out int keyId))
+                        return match.Value;
+
+                    if (!_battlePowerMap.TryGetValue(keyId, out string? keyName))
+                        return match.Value;
+
+                    string indent = match.Groups["indent"].Value;
+                    return string.Format("{0}{1} {2}", indent, keyId, keyName);
+                });
+
+                bool changed = !string.Equals(blockOutput, line, StringComparison.Ordinal);
+                return new PluginProcessResult
+                {
+                    Handled = changed,
+                    Output = blockOutput,
+                    ErrorMessage = !changed && _battlePowerMap.Count == 0 ? "未加载 s_battle_power 映射，effects key 名称无法扩展" : string.Empty
+                };
+            }
 
             Match match = SkillRegex.Match(line);
             if (!match.Success)

@@ -14,7 +14,9 @@
 #endregion
 
 using System;
+using System.Drawing;
 using System.Runtime.InteropServices;
+using System.Media;
 using System.Windows.Forms;
 
 namespace SnakeTail
@@ -73,6 +75,7 @@ namespace SnakeTail
                     Show(MainForm.Instance);
             }
             ActiveTailForm = activeTailForm;
+            HideSearchFeedback();
             BringToFront();
             _searchTextBox.SelectAll();
             _searchTextBox.Focus();
@@ -92,14 +95,30 @@ namespace SnakeTail
                         found = ActiveTailForm.SearchForText(_searchTextBox.Text, _matchCaseCheckBox.Checked, searchForward, keywordHighlights, keywordHighlights ? false : _wrapArroundcheckBox.Checked);
                     }
                 }
-                if (!found)
-                {
-                    if (keywordHighlights)
-                        MessageBox.Show("Cannot find any highlighted lines", "Search Result", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    else
-                        MessageBox.Show("Cannot find \"" + _searchTextBox.Text + "\"", "Search Result", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                }
+
+                // 搜索结果改为窗内提示，避免不可见模态框阻塞界面。
+                if (found)
+                    HideSearchFeedback();
+                else if (keywordHighlights)
+                    ShowSearchFeedback("Cannot find any highlighted lines");
+                else
+                    ShowSearchFeedback("Cannot find \"" + _searchTextBox.Text + "\"");
             }
+        }
+
+        private void ShowSearchFeedback(string message)
+        {
+            // 未命中信息直接显示在搜索窗内，随搜索窗显示与关闭。
+            _resultLabel.Text = message;
+            _resultLabel.Visible = true;
+            SystemSounds.Asterisk.Play();
+        }
+
+        private void HideSearchFeedback()
+        {
+            // 成功搜索、重新输入或关闭窗口时清掉提示。
+            _resultLabel.Visible = false;
+            _resultLabel.Text = string.Empty;
         }
 
         void _activeForm_FormClosing(object sender, FormClosingEventArgs e)
@@ -117,6 +136,7 @@ namespace SnakeTail
         {
             InitializeComponent();
             _findNextBtn.Enabled = false;
+            _resultLabel.ForeColor = Color.Firebrick;
         }
 
         static class NativeMethods
@@ -125,6 +145,7 @@ namespace SnakeTail
             public const int SWP_NOACTIVATE = 0x0010;
             public const int SWP_NOSIZE = 0x0001;
             public const int SWP_NOMOVE = 0x0002;
+
             [DllImport("user32.dll", CharSet = CharSet.Auto)]
             public static extern int SetWindowPos(IntPtr hWnd,
               IntPtr hWndInsertAfter,
@@ -157,6 +178,7 @@ namespace SnakeTail
 
         private void _cancelBtn_Click(object sender, EventArgs e)
         {
+            HideSearchFeedback();
             if (_activeTailForm != null && _activeTailForm.TailWindow != null && !_activeTailForm.TailWindow.IsDisposed && _activeTailForm.TailWindow.MdiParent == null)
                 _activeTailForm.TailWindow.Focus();
             else if (MainForm.Instance != null)
@@ -167,6 +189,7 @@ namespace SnakeTail
 
         private void _searchTextBox_TextChanged(object sender, EventArgs e)
         {
+            HideSearchFeedback();
             if (_searchTextBox.Text.Length == 0)
                 _findNextBtn.Enabled = false;
             else
@@ -186,6 +209,7 @@ namespace SnakeTail
 
         private void SearchForm_FormClosed(object sender, FormClosedEventArgs e)
         {
+            HideSearchFeedback();
             _instance = null;
         }
     }

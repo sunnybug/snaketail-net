@@ -29,6 +29,17 @@ namespace SnakeTail
     }
 
     /// <summary>
+    /// 可选块提取接口：用于把当前行扩展为“整块文本”再进入插件处理。
+    /// </summary>
+    public interface ILogDisplayBlockPlugin
+    {
+        /// <summary>
+        /// 尝试从当前行收集一个完整块；返回 true 时宿主将块文本传给插件。
+        /// </summary>
+        bool TryCollectBlock(int lineKey, string currentLine, Func<int, string> readLineByLineKey, out string blockText);
+    }
+
+    /// <summary>
     /// 插件上下文：提供只读目录与宿主信息。
     /// </summary>
     public sealed class PluginContext

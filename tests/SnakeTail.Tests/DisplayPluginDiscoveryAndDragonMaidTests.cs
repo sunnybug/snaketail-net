@@ -106,6 +106,33 @@ public class DisplayPluginDiscoveryAndDragonMaidTests
     }
 
     [Fact]
+    public void DragonMaid_should_append_skill_name_for_known_aura_skills_id()
+    {
+        // 验证龙女仆插件对 aura_skills 命中技能 ID 的替换效果
+        string tempRoot = Path.Combine(Path.GetTempPath(), "snaketail-plugin-test-" + Guid.NewGuid().ToString("N"));
+        string pluginDir = Path.Combine(tempRoot, "config", "plugins", "龙女仆");
+        Directory.CreateDirectory(pluginDir);
+        try
+        {
+            string jsonPath = Path.Combine(pluginDir, "s_skill.json");
+            File.WriteAllText(jsonPath, """{"s_skill":[[20244002,"光环测试"]] }""");
+
+            var plugin = new DragonMaidDisplayPlugin();
+            var context = new PluginContext(pluginDir, Path.Combine(tempRoot, "config"), Path.Combine(tempRoot, "fake.log"), "1.0.0");
+            plugin.Initialize(context);
+
+            PluginProcessResult knownResult = plugin.TryProcess("abc aura_skills: 20244002 def");
+
+            Assert.True(knownResult.Handled);
+            Assert.Equal("abc aura_skills: 20244002 光环测试 def", knownResult.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void DragonMaid_should_keep_passive_skill_zero_unchanged()
     {
         // 验证 passive_skill: 0 无映射时保持原样
@@ -125,6 +152,33 @@ public class DisplayPluginDiscoveryAndDragonMaidTests
 
             Assert.False(zeroResult.Handled);
             Assert.Equal("abc passive_skill: 0 def", zeroResult.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DragonMaid_should_append_skill_name_for_skill_list()
+    {
+        // 验证 skill: [id,...] 列表可逐个映射并追加技能名。
+        string tempRoot = Path.Combine(Path.GetTempPath(), "snaketail-plugin-test-" + Guid.NewGuid().ToString("N"));
+        string pluginDir = Path.Combine(tempRoot, "config", "plugins", "龙女仆");
+        Directory.CreateDirectory(pluginDir);
+        try
+        {
+            string jsonPath = Path.Combine(pluginDir, "s_skill.json");
+            File.WriteAllText(jsonPath, """{"s_skill":[[2001,"斩击"],[4001,"暴击"]] }""");
+
+            var plugin = new DragonMaidDisplayPlugin();
+            var context = new PluginContext(pluginDir, Path.Combine(tempRoot, "config"), Path.Combine(tempRoot, "fake.log"), "1.0.0");
+            plugin.Initialize(context);
+
+            PluginProcessResult result = plugin.TryProcess("abc skill: [2001,3002,4001,10001041] def");
+
+            Assert.True(result.Handled);
+            Assert.Equal("abc skill: [2001 斩击,3002,4001 暴击,10001041] def", result.Output);
         }
         finally
         {

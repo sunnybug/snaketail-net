@@ -18,6 +18,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.Text;
+using System.Threading;
 using System.Windows.Forms;
 using System.IO;
 using System.Diagnostics;
@@ -127,6 +128,9 @@ namespace SnakeTail
         int _lastDoubleClickWordLength = -1;
 
         private TailFileConfig _currentTailConfig = null;
+        DateTime _lastTailTickUtc = DateTime.MinValue;
+        int _tailTickRunning = 0;
+        int _watcherUiRefreshQueued = 0;
 
         public TailForm()
         {
@@ -440,6 +444,8 @@ namespace SnakeTail
 
         /// <summary>当前正在 tail 的日志文件绝对路径，用于单实例时判断是否已打开。</summary>
         public string CurrentFilePathAbsolute => _logTailStream?.FilePathAbsolute;
+        /// <summary>最近一次加载失败原因，供批量打开汇总使用。</summary>
+        public string LastLoadFailureReason { get; private set; }
 
         public void LoadFile(string filepath)
         {
@@ -450,6 +456,8 @@ namespace SnakeTail
 
         public void LoadConfig(TailFileConfig tailConfig, string configPath)
         {
+            // 每次加载前清空失败原因，确保状态与当前文件一致。
+            LastLoadFailureReason = null;
             _configPath = configPath;
             _currentTailConfig = tailConfig;
             if (_currentTailConfig.EnabledDisplayPlugins == null)
@@ -461,6 +469,7 @@ namespace SnakeTail
             }
             catch (System.ArgumentException ex)
             {
+                LastLoadFailureReason = string.Format("{0}: {1}", ex.GetType().FullName, ex.Message);
                 MessageBox.Show(this, String.Format("Failed to open file:\n\n{0}\n\nError:{1}", tailConfig.FilePath, ex.Message), "Invalid filename", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
                 Close();
                 return;
@@ -574,6 +583,7 @@ namespace SnakeTail
                 {
                     if (MessageBox.Show(this, String.Format("The file is very large, sure you want to open it?\n\nFile Name: {0}\nFile Size: {1} Megabytes", _logTailStream.FilePath, _logTailStream.Length / 1024 / 1024), "Large file detected", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.No)
                     {
+                        LastLoadFailureReason = string.Format("用户取消打开超大文件: File={0}, SizeMB={1}", _logTailStream.FilePath, _logTailStream.Length / 1024 / 1024);
                         Close();
                         return;
                     }
@@ -586,6 +596,7 @@ namespace SnakeTail
             }
 
             _logTailStream.FileReloadedEvent += new EventHandler(_logTailStream_FileReloadedEvent);
+            _logTailStream.FileChangedEvent += new EventHandler(_logTailStream_FileChangedEvent);
 
             if (_logFileCache != null)
                 _logFileCache.Reset();
@@ -732,6 +743,7 @@ namespace SnakeTail
             // 文件被重新加载，重置行号偏移量
             _savedLineNumber = 0;
             InvalidateProcessedLineCache();
+            MarkTabChangedIfInactive();
 
             SetStatusBar(null);
         }
@@ -978,6 +990,7 @@ namespace SnakeTail
             _logFileStream = new LogFileStream(configPath, filePath, newEncoding, _currentTailConfig.FileCheckInterval, _currentTailConfig.FileCheckPattern);
             _logTailStream = new LogFileStream(configPath, filePath, newEncoding, _currentTailConfig.FileCheckInterval, _currentTailConfig.FileCheckPattern);
             _logTailStream.FileReloadedEvent += new EventHandler(_logTailStream_FileReloadedEvent);
+            _logTailStream.FileChangedEvent += new EventHandler(_logTailStream_FileChangedEvent);
 
             // Recreate cache
             _logFileCache = new LogFileCache(_currentTailConfig.FileCacheSize);
@@ -2125,37 +2138,66 @@ namespace SnakeTail
             return lastVisibleIndexInDetailsMode >= index;
         }
 
+        /// <summary>
+        /// 当日志内容发生变化且当前窗口非激活时，标记对应标签页为未读变更。
+        /// </summary>
+        private void MarkTabChangedIfInactive()
+        {
+            if (MainForm.Instance == null)
+                return;
+            if (MainForm.Instance.IsMdiChildActive(this))
+                return;
+            MainForm.Instance.SetMdiTabChanged(this, true);
+        }
+
         private void _tailTimer_Tick(object sender, EventArgs e)
         {
-            if (!_tailTimer.Enabled)
+            if (Interlocked.Exchange(ref _tailTickRunning, 1) == 1)
                 return;
-            if (_tailListView == null || _tailListView.IsDisposed)
-                return;
+            try
+            {
+                if (!_tailTimer.Enabled)
+                    return;
+                if (_tailListView == null || _tailListView.IsDisposed)
+                    return;
+                DateTime nowUtc = DateTime.UtcNow;
+                if (_lastTailTickUtc != DateTime.MinValue)
+                {
+                    _ = nowUtc.Subtract(_lastTailTickUtc).TotalMilliseconds;
+                }
+                _lastTailTickUtc = nowUtc;
 
-            UpdateFormTitle(false);
+                UpdateFormTitle(false);
 
-            CheckExternalToolResults();
+                CheckExternalToolResults();
 
-            int displayLineCount = _tailListView.VirtualListSize;  // 当前显示的行数
+                int previousDisplayLineCount = _tailListView.VirtualListSize;
+                bool isFilteringActive = _quickFilter && !string.IsNullOrEmpty(_quickKeyword);
+            // 当未开启过滤时，直接使用显示行数，确保非过滤场景也能正确刷新
+            int displayLineCount = isFilteringActive
+                ? (_originalVirtualListSize > 0 ? _originalVirtualListSize : previousDisplayLineCount)
+                : previousDisplayLineCount;  // 当前未过滤行数
             int actualLineCount = _savedLineNumber + displayLineCount;  // 文件中的实际行号
             bool listAtBottom = ListAtBottom();
             bool warningIcon = false;
+            int appendedLines = 0;
 
-            if (_displayTabIcon)
-            {
-                TabPage parentTab = this.Tag as TabPage;
-                if (parentTab != null && parentTab.ImageIndex == 1)
+                if (_displayTabIcon)
+                {
+                    TabPage parentTab = this.Tag as TabPage;
+                    if (parentTab != null && parentTab.ImageIndex == 1)
+                        warningIcon = true;
+                }
+                else
                     warningIcon = true;
-            }
-            else
-                warningIcon = true;
 
             // 从文件的实际位置读取新行
-            string line = _logTailStream.ReadLine(actualLineCount + 1);
+                string line = _logTailStream.ReadLine(actualLineCount + 1);
             while (line != null)
             {
                 ++displayLineCount;
                 ++actualLineCount;
+                ++appendedLines;
                 _logFileCache.AppendTailCache(line, displayLineCount);  // cache 使用显示行号
                 // 新增行的高亮/工具触发统一基于处理后文本
                 string processedLine = _displayTextProcessor.GetProcessedLineText(actualLineCount, line, ReadRawLineTextByLineKey);
@@ -2174,10 +2216,13 @@ namespace SnakeTail
                         warningIcon = true;
                 }
                 line = _logTailStream.ReadLine(actualLineCount + 1);
-            }
+                }
 
-            if (displayLineCount == _tailListView.VirtualListSize)
-            {
+                if (isFilteringActive && displayLineCount != previousDisplayLineCount)
+                    MarkTabChangedIfInactive();
+
+                if (displayLineCount == previousDisplayLineCount)
+                {
                 if (displayLineCount == 0 && _savedLineNumber == 0 && _logTailStream.Length == 0)
                 {
                     // 文件为空或无法打开，显示错误信息
@@ -2198,10 +2243,11 @@ namespace SnakeTail
                 displayLineCount = 0;
                 _savedLineNumber = 0;
                 InvalidateProcessedLineCache();
-            }
+                MarkTabChangedIfInactive();
+                }
 
-            if (_displayTabIcon)
-            {
+                if (_displayTabIcon)
+                {
                 TabPage parentTab = this.Tag as TabPage;
                 if (parentTab != null && parentTab.Parent != null && parentTab.Parent.Visible && !parentTab.Visible)
                 {
@@ -2210,10 +2256,10 @@ namespace SnakeTail
                     else
                         parentTab.ImageIndex = 0;
                 }
-            }
+                }
 
-            if (displayLineCount < _tailListView.VirtualListSize)
-            {
+                if (displayLineCount < _tailListView.VirtualListSize)
+                {
                 // 文件被截断，重置
                 _logFileStream.CheckLogFile(true);
                 _logFileCache = new LogFileCache(_logFileCache.Items.Count);
@@ -2223,16 +2269,16 @@ namespace SnakeTail
                 _savedLineNumber = 0;  // 重置偏移量
                 _originalVirtualListSize = 0; // 重置原始大小
                 InvalidateProcessedLineCache();
-                if (_quickFilter)
+                if (isFilteringActive)
                 {
                     ApplyKeywordFilter();
                 }
                 _tailListView.Invalidate();
-            }
-            else
-            {
+                }
+                else
+                {
                 //_tailListView.VirtualListSize = linecount;
-                if (!_quickFilter)
+                if (!isFilteringActive)
                 {
                     _originalVirtualListSize = 0; // 重置原始大小
                     ListViewUtil.SetVirtualListSizeWithoutRefresh(_tailListView, displayLineCount);
@@ -2245,7 +2291,36 @@ namespace SnakeTail
                 }
                 if (listAtBottom && _tailListView.VirtualListSize > 0)
                     _tailListView.EnsureVisible(_tailListView.VirtualListSize - 1);
+                }
             }
+            catch (Exception)
+            {
+                throw;
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _tailTickRunning, 0);
+            }
+        }
+
+        void _logTailStream_FileChangedEvent(object sender, EventArgs e)
+        {
+            if (IsDisposed || !IsHandleCreated)
+                return;
+            if (Interlocked.Exchange(ref _watcherUiRefreshQueued, 1) == 1)
+                return;
+
+            BeginInvoke((MethodInvoker)delegate
+            {
+                try
+                {
+                    _tailTimer_Tick(_tailTimer, EventArgs.Empty);
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _watcherUiRefreshQueued, 0);
+                }
+            });
         }
 
         private void CheckExternalToolResults()
@@ -2513,7 +2588,6 @@ namespace SnakeTail
 
         private void _contextMenuStrip_Opening(object sender, EventArgs e)
         {
-            bool windowsService = _taskMonitor != null && _taskMonitor.ServiceController != null;
             bool pauseAndContinue = _taskMonitor != null && _taskMonitor.CanPauseAndContinue;
             RebuildPluginMenu();
             // 非系统日志（普通文件日志）不显示 Start Service 和 Stop Service 菜单项
@@ -2527,6 +2601,9 @@ namespace SnakeTail
         private void TailForm_Activated(object sender, EventArgs e)
         {
             SearchForm.Instance.ActiveTailForm = this;
+            // 当前标签页被激活后，清除未读变更红点。
+            if (MainForm.Instance != null)
+                MainForm.Instance.SetMdiTabChanged(this, false);
             TabPage parentTab = this.Tag as TabPage;
             if (parentTab != null)
                 parentTab.ImageIndex = -1;

@@ -9,8 +9,10 @@ namespace LongMaidDisplayPlugin
     /// </summary>
     public sealed class DragonMaidDisplayPlugin : ILogDisplayPlugin, ILogDisplayBlockPlugin
     {
-        // 统一匹配 skills/passive_skill 两种键名。
-        private static readonly Regex SkillRegex = new Regex(@"(?<key>skills|passive_skill):\s*(?<id>\d+)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        // 统一匹配 skills/passive_skill/aura_skills 三种键名。
+        private static readonly Regex SkillRegex = new Regex(@"(?<key>skills|passive_skill|aura_skills):\s*(?<id>\d+)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        // 匹配 skill: [1,2,3] 这种技能列表。
+        private static readonly Regex SkillListRegex = new Regex(@"(?<key>skill):\s*\[(?<ids>\s*\d+(?:\s*,\s*\d+)*)\s*\]", RegexOptions.Compiled | RegexOptions.CultureInvariant);
         // 匹配战力属性块起始行。
         private static readonly Regex BattleEffectsBlockStartRegex = new Regex(@"^\s*attr_data=effects\s*\{\s*$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
         // 匹配战力属性块中允许出现的行。
@@ -127,7 +129,7 @@ namespace LongMaidDisplayPlugin
         }
 
         /// <summary>
-        /// 只处理包含 skills/passive_skill 数字 的行。
+        /// 只处理包含 skills/passive_skill/aura_skills 数字 的行。
         /// </summary>
         public bool CanProcess(string line)
         {
@@ -135,7 +137,9 @@ namespace LongMaidDisplayPlugin
                 return false;
 
             // 兼容单行技能映射与多行 effects 块映射两类输入。
-            return SkillRegex.IsMatch(line) || (line.Contains(Environment.NewLine) && BattleEffectsKeyRegex.IsMatch(line));
+            return SkillRegex.IsMatch(line)
+                || SkillListRegex.IsMatch(line)
+                || (line.Contains(Environment.NewLine) && BattleEffectsKeyRegex.IsMatch(line));
         }
 
         /// <summary>
@@ -169,6 +173,42 @@ namespace LongMaidDisplayPlugin
                     Output = blockOutput,
                     ErrorMessage = !changed && _battlePowerMap.Count == 0 ? "未加载 s_battle_power 映射，effects key 名称无法扩展" : string.Empty
                 };
+            }
+
+            // skill: [数字,数字]：逐个 ID 映射并在原位置追加技能名。
+            Match listMatch = SkillListRegex.Match(line);
+            if (listMatch.Success)
+            {
+                string idsText = listMatch.Groups["ids"].Value;
+                string[] idTokens = idsText.Split(',');
+                bool changed = false;
+                string[] mappedTokens = new string[idTokens.Length];
+                for (int i = 0; i < idTokens.Length; i++)
+                {
+                    string token = idTokens[i].Trim();
+                    if (!int.TryParse(token, out int listSkillId))
+                    {
+                        mappedTokens[i] = token;
+                        continue;
+                    }
+
+                    if (_skillMap.TryGetValue(listSkillId, out string? listSkillName))
+                    {
+                        mappedTokens[i] = string.Format("{0} {1}", listSkillId, listSkillName);
+                        changed = true;
+                        continue;
+                    }
+
+                    mappedTokens[i] = token;
+                }
+
+                if (!changed)
+                    return new PluginProcessResult { Handled = false, Output = line };
+
+                string listKey = listMatch.Groups["key"].Value;
+                string listReplacement = string.Format("{0}: [{1}]", listKey, string.Join(",", mappedTokens));
+                string listOutput = SkillListRegex.Replace(line, listReplacement, 1);
+                return new PluginProcessResult { Handled = true, Output = listOutput };
             }
 
             Match match = SkillRegex.Match(line);

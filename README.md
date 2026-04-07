@@ -35,6 +35,9 @@ VS Code 推荐扩展（见 `.vscode/extensions.json`）：**C# Dev Kit**（调�
 - 当旧会话配置缺失或写成 `<=0` 时，会自动回退到上述默认值，避免 WinForms `Timer` 落到 `100ms` 导致空闲期 CPU 偏高。
 - 日志文件变化检测采用“事件驱动优先 + 低频轮询兜底”：`LogFileStream` 通过 `FileSystemWatcher` 接收目录事件，仅设置变更标记，在读取端以 `200ms` 防抖触发检查，减少空闲期无效 IO。
 - 保留 `FileCheckInterval` 兜底校验，用于覆盖监听缓冲区溢出、网络盘事件延迟/丢失、重命名顺序异常等场景。
+- 读取端在 EOF 时会额外按底层流长度执行一次轻量重同步：即使事件漏触发，也能在后续 tick 读取到追加的新行。
+- 打开多个日志文件时会为每个标签页创建独立 Tail 配置副本，避免共享配置对象导致“文件监控串到最后一个文件”。
+- 已修复快速过滤开启时的追尾读取基准：改为按“未过滤总行数”计算下一行，避免新增内容到达后界面长时间不刷新。
 
 ## 自动发布（CI）
 修改 `src/SnakeTail.csproj` 中的版本号并推送到 `main`/`master` 后，Version Release 工作流会自动创建 tag。**要让 Publish 工作流被触发**，请在仓库 Settings → Secrets and variables → Actions 中新增 Secret：
@@ -47,6 +50,8 @@ VS Code 推荐扩展（见 `.vscode/extensions.json`）：**C# Dev Kit**（调�
 - 监控 Windows 事件日志（无需管理员权限）
 - 支持多种窗口模式（MDI、标签页、浮动窗口）
 - 保存和加载整个窗口会话。可以在启动时通过命令行参数加载会话文件
+  - “Open Session...” 支持在文件对话框中多选 `.xml` 会话并按选择顺序逐个加载
+  - 多选打开文件/会话时，会弹出成功/失败汇总；失败原因会写入 `log/YYYY-MM-DD.log`
 - 基于关键字匹配的句子高亮（支持正则表达式）
   - 关键字高亮：只高亮关键字文本本身，而不是整行背景
   - 行标识：匹配关键字的行在最左边显示一个色块标识
@@ -64,6 +69,7 @@ VS Code 推荐扩展（见 `.vscode/extensions.json`）：**C# Dev Kit**（调�
   - 搜索未命中改为搜索窗内联提示，不再弹模态框，避免提示不可见时把界面卡住
 - 全局对话框（`MessageBox`）统一绑定 owner（主窗体/活动窗体/前台窗口兜底），减少弹窗被遮挡或假死观感
 - 当检测到文件更改时，使用图标高亮窗口标签页
+- 多文件同时监控时，非当前激活标签页若有内容变更，会在对应 tab 显示红点未读提示；切换到该页后自动清除
 - 通过简单的拖放操作从 Windows 资源管理器跟踪新日志文件
 - 使用正则表达式过滤 Windows 事件日志
 - 在窗口标题栏显示简单的进程统计信息（内存 + CPU 使用率 + 事务/秒）
@@ -114,6 +120,7 @@ VS Code 推荐扩展（见 `.vscode/extensions.json`）：**C# Dev Kit**（调�
   - `s_skill.json`：读取 `s_skill[*][0]=技能ID`、`s_skill[*][1]=技能名`
   - `s_battle_power.json`（可选）：读取 `s_battle_power[*][0]=key`、`s_battle_power[*][5]=名称`
 - 处理规则：
-  - 单行：命中 `skills: <数字>` 或 `passive_skill: <数字>` 且存在映射时，显示为 `键名: <数字> <技能名>`；未知 ID（如 `passive_skill: 0`）保持原样。
+  - 单行：命中 `skills: <数字>`、`passive_skill: <数字>` 或 `aura_skills: <数字>` 且存在映射时，显示为 `键名: <数字> <技能名>`；未知 ID（如 `passive_skill: 0`）保持原样。
+  - 单行列表：命中 `skill: [<数字>,<数字>,...]` 时，按列表逐个扩展，已知 ID 显示为 `<数字> <技能名>`，未知 ID 保持原样（如 `skill: [2001 名称A,3002,4001 名称B]`）。
   - 多行块：命中 `attr_data=effects {` 起始并收集连续 `effects` 结构块后，把 `key: <数字>` 扩展为 `key: <数字> <名称>`（如 `key: 1 声明`）。
 

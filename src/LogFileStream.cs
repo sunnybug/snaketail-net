@@ -41,6 +41,7 @@ namespace SnakeTail
         static readonly TimeSpan EventDrivenCheckDebounce = TimeSpan.FromMilliseconds(200);
 
         public event EventHandler FileReloadedEvent;
+        public event EventHandler FileChangedEvent;
 
         public LogFileStream(string configPath, string filePath, Encoding fileEncoding, int fileCheckFrequency, bool fileCheckPattern)
         {
@@ -458,7 +459,11 @@ namespace SnakeTail
         void FileWatcher_Changed(object sender, FileSystemEventArgs e)
         {
             if (IsWatchEventMatch(_filePathAbsolute, _fileStream != null ? _fileStream.Name : null, e != null ? e.FullPath : null, _fileCheckPattern))
+            {
                 Interlocked.Exchange(ref _fileChangedSignal, 1);
+                if (FileChangedEvent != null)
+                    FileChangedEvent(this, EventArgs.Empty);
+            }
         }
 
         // 重命名事件：新旧路径任一命中都视为变化。
@@ -470,6 +475,8 @@ namespace SnakeTail
                 IsWatchEventMatch(_filePathAbsolute, _fileStream != null ? _fileStream.Name : null, newPath, _fileCheckPattern))
             {
                 Interlocked.Exchange(ref _fileChangedSignal, 1);
+                if (FileChangedEvent != null)
+                    FileChangedEvent(this, EventArgs.Empty);
             }
         }
 
@@ -477,6 +484,8 @@ namespace SnakeTail
         void FileWatcher_Error(object sender, ErrorEventArgs e)
         {
             Interlocked.Exchange(ref _fileChangedSignal, 1);
+            if (FileChangedEvent != null)
+                FileChangedEvent(this, EventArgs.Empty);
         }
 
         // 判断事件路径是否与当前跟踪目标相关。
@@ -559,7 +568,10 @@ namespace SnakeTail
                     {
                         CheckLogFile(false);
                     }
-                    return null;
+
+                    // EOF 兜底：即使监听事件丢失，也尝试按文件长度重同步读取器。
+                    if (!TryResyncReaderAtEof())
+                        return null;
                 }
 
                 string line = null;
@@ -589,6 +601,22 @@ namespace SnakeTail
                     return "Cannot read file: " + _filePathAbsolute + " (" + ex.Message + ")";
                 return null;
             }
+        }
+
+        // EOF 时按底层流长度重同步读取器，避免遗漏追加内容。
+        bool TryResyncReaderAtEof()
+        {
+            if (_fileReader == null || _fileStream == null)
+                return false;
+
+            long streamLength = _fileStream.Length;
+            long streamPosition = _fileStream.Position;
+            if (streamLength <= streamPosition)
+                return false;
+
+            _fileStream.Seek(streamPosition, SeekOrigin.Begin);
+            _fileReader.DiscardBufferedData();
+            return !_fileReader.EndOfStream;
         }
 
         public int SkipLines(long lineCount)

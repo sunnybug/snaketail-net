@@ -39,8 +39,10 @@ namespace SnakeTail
 
         private JWC.MruStripMenu _mruMenu;
         private SnakeTailStorage _storage;
-        /// <summary>已监控的文件夹路径 -> FileSystemWatcher，用于“打开文件夹并监控”</summary>
-        private Dictionary<string, FileSystemWatcher> _folderWatchers = new Dictionary<string, FileSystemWatcher>(StringComparer.OrdinalIgnoreCase);
+        // 记录最近一次会话加载失败原因，供多选汇总与日志输出。
+        private string _lastSessionLoadErrorReason = null;
+        /// <summary>记录存在“未读变更”的标签页，用于绘制红点提示。</summary>
+        private HashSet<TabPage> _changedTabPages = new HashSet<TabPage>();
 
         public MainForm()
         {
@@ -55,6 +57,9 @@ namespace SnakeTail
             _MDITabControl.ImageList.TransparentColor = System.Drawing.Color.Transparent;
             _MDITabControl.ImageList.Images.Add(new Bitmap(Properties.Resources.GreenBulletIcon.ToBitmap()));
             _MDITabControl.ImageList.Images.Add(new Bitmap(Properties.Resources.YellowBulletIcon.ToBitmap()));
+            // 启用自绘标签页，用于叠加“未读变更”红点。
+            _MDITabControl.DrawMode = TabDrawMode.OwnerDrawFixed;
+            _MDITabControl.DrawItem += _MDITabControl_DrawItem;
 
             // 最近打开文件仅使用 xSnakeTail.db，不使用注册表
             _mruMenu = new JWC.MruStripMenuInline(recentFilesToolStripMenuItem, recentFile1ToolStripMenuItem, new JWC.MruStripMenu.ClickedHandler(OnMruFile), null, false, 10);
@@ -200,6 +205,7 @@ namespace SnakeTail
         {
             TabPage tp = new TabPage(mdiChild.Text);
             tp.Tag = mdiChild;
+            tp.ImageIndex = -1;
             tp.Parent = _MDITabControl;
             //AddOwnedForm(mdiChild);
             mdiChild.Tag = tp;
@@ -237,7 +243,57 @@ namespace SnakeTail
 
         private void ActiveMdiChild_FormClosed(object sender, FormClosedEventArgs e)
         {
-            ((sender as Form).Tag as TabPage).Dispose();
+            TabPage tabPage = (sender as Form).Tag as TabPage;
+            if (tabPage != null)
+            {
+                lock (_changedTabPages)
+                {
+                    _changedTabPages.Remove(tabPage);
+                }
+                tabPage.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// 设置指定 MDI 子窗体对应标签页的“未读变更”标记。
+        /// </summary>
+        public void SetMdiTabChanged(Form mdiChild, bool changed)
+        {
+            if (mdiChild == null || mdiChild.IsDisposed || IsDisposed)
+                return;
+            TabPage tabPage = mdiChild.Tag as TabPage;
+            if (tabPage == null || tabPage.IsDisposed)
+                return;
+
+            bool stateChanged = false;
+            lock (_changedTabPages)
+            {
+                if (changed)
+                    stateChanged = _changedTabPages.Add(tabPage);
+                else
+                    stateChanged = _changedTabPages.Remove(tabPage);
+            }
+            if (stateChanged && _MDITabControl != null && !_MDITabControl.IsDisposed)
+                _MDITabControl.Invalidate();
+        }
+
+        /// <summary>
+        /// 判断指定 MDI 子窗体是否是当前激活页。
+        /// </summary>
+        public bool IsMdiChildActive(Form mdiChild)
+        {
+            return mdiChild != null && !mdiChild.IsDisposed && ActiveMdiChild == mdiChild;
+        }
+
+        /// <summary>
+        /// 查询标签页是否存在未读变更。
+        /// </summary>
+        private bool IsTabChanged(TabPage tabPage)
+        {
+            lock (_changedTabPages)
+            {
+                return _changedTabPages.Contains(tabPage);
+            }
         }
 
         private void openToolStripMenuItem_Click(object sender, EventArgs e)
@@ -252,99 +308,6 @@ namespace SnakeTail
             OpenFileSelection(fileDialog.FileNames);
         }
 
-        private void openFolderWatchToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            using (FolderBrowserDialog dlg = new FolderBrowserDialog())
-            {
-                dlg.Description = "选择要监控的文件夹，该文件夹内新产生的文件将自动在新标签页中打开";
-                dlg.UseDescriptionForTitle = true;
-                if (dlg.ShowDialog(this) != DialogResult.OK)
-                    return;
-
-                string folderPath = dlg.SelectedPath;
-                if (string.IsNullOrEmpty(folderPath) || !Directory.Exists(folderPath))
-                    return;
-
-                string normalizedPath = Path.GetFullPath(folderPath);
-                lock (_folderWatchers)
-                {
-                    if (_folderWatchers.ContainsKey(normalizedPath))
-                    {
-                        SetStatusBar("已在监控: " + normalizedPath, 0, 0);
-                        return;
-                    }
-                }
-
-                try
-                {
-                    // 先打开目录中已有文件（仅顶层，不递归）
-                    string[] existingFiles = null;
-                    try
-                    {
-                        existingFiles = Directory.GetFiles(normalizedPath, "*.*");
-                    }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show(this, "无法读取目录内文件列表：\n\n" + ex.Message, "打开文件夹并监控", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                        return;
-                    }
-                    if (existingFiles != null && existingFiles.Length > 0)
-                    {
-                        SetStatusBar("正在打开 " + existingFiles.Length + " 个文件...", 0, 0);
-                        Application.DoEvents();
-                        int opened = OpenFileSelection(existingFiles);
-                        SetStatusBar(opened > 0 ? "已打开 " + opened + " 个文件，并开始监控新文件" : "开始监控文件夹", 0, 0);
-                    }
-
-                    var watcher = new FileSystemWatcher(normalizedPath);
-                    watcher.NotifyFilter = NotifyFilters.FileName | NotifyFilters.CreationTime;
-                    watcher.Created += FolderWatcher_Created;
-                    watcher.EnableRaisingEvents = true;
-
-                    lock (_folderWatchers)
-                    {
-                        _folderWatchers[normalizedPath] = watcher;
-                    }
-                    if (existingFiles == null || existingFiles.Length == 0)
-                        SetStatusBar("正在监控文件夹: " + normalizedPath, 0, 0);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show(this, "无法监控该文件夹：\n\n" + ex.Message, "打开文件夹并监控", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                }
-            }
-        }
-
-        private void FolderWatcher_Created(object sender, FileSystemEventArgs e)
-        {
-            string fullPath = e.FullPath;
-            try
-            {
-                if (Directory.Exists(fullPath))
-                    return;
-            }
-            catch
-            {
-                return;
-            }
-
-            if (IsDisposed || !IsHandleCreated)
-                return;
-            BeginInvoke(new Action<string>(path =>
-            {
-                try
-                {
-                    if (IsDisposed || !IsHandleCreated)
-                        return;
-                    // 若该文件已在某 Tab 打开则激活该 Tab，否则新建 Tab
-                    OpenFileOrActivateTab(new[] { path });
-                }
-                catch (Exception ex)
-                {
-                    SetStatusBar("打开新文件失败: " + ex.Message, 0, 0);
-                }
-            }), fullPath);
-        }
 
         private void OnMruFile(int number, String filename)
         {
@@ -385,6 +348,7 @@ namespace SnakeTail
             }
 
             int filesOpened = 0;
+            List<string> failedFiles = new List<string>();
             foreach (string filename in filenames)
             {
                 string configPath = "";
@@ -398,20 +362,39 @@ namespace SnakeTail
                 }
 
                 TailForm mdiForm = new TailForm();
-                TailFileConfig tailConfig = _defaultTailConfig;
-                tailConfig.FilePath = filename;
-                // Auto-detect encoding when opening a file
-                if (File.Exists(filename))
+                try
                 {
-                    Encoding detectedEncoding = EncodingHelper.DetectFileEncoding(filename);
-                    if (detectedEncoding != null)
+                    // 每个文件使用独立配置副本，避免多个标签页共享同一对象导致串线。
+                    TailFileConfig tailConfig = CloneTailFileConfig(_defaultTailConfig);
+                    tailConfig.FilePath = filename;
+                    // Auto-detect encoding when opening a file
+                    if (File.Exists(filename))
                     {
-                        tailConfig.EnumFileEncoding = detectedEncoding;
+                        Encoding detectedEncoding = EncodingHelper.DetectFileEncoding(filename);
+                        if (detectedEncoding != null)
+                        {
+                            tailConfig.EnumFileEncoding = detectedEncoding;
+                        }
                     }
+                    mdiForm.LoadConfig(tailConfig, configPath);
                 }
-                mdiForm.LoadConfig(tailConfig, configPath);
-                if (mdiForm.IsDisposed)
+                catch (Exception ex)
+                {
+                    string reason = BuildExceptionMessage(ex);
+                    failedFiles.Add(string.Format("{0}\n  原因: {1}", filename, reason));
+                    AppLog.AppendDaily(AppLog.LevelErr, string.Format("批量打开文件失败: File={0}, Error={1}", filename, reason));
+                    if (!mdiForm.IsDisposed)
+                        mdiForm.Close();
                     continue;
+                }
+
+                if (mdiForm.IsDisposed)
+                {
+                    string reason = string.IsNullOrEmpty(mdiForm.LastLoadFailureReason) ? "加载过程中窗口被关闭（未返回详细原因）" : mdiForm.LastLoadFailureReason;
+                    failedFiles.Add(string.Format("{0}\n  原因: {1}", filename, reason));
+                    AppLog.AppendDaily(AppLog.LevelWarn, string.Format("批量打开文件未完成: File={0}, Reason={1}", filename, reason));
+                    continue;
+                }
 
                 try
                 {
@@ -446,7 +429,118 @@ namespace SnakeTail
                 ++filesOpened;
                 Application.DoEvents();
             }
+
+            if (failedFiles.Count > 0)
+            {
+                string summary = string.Format("共选择 {0} 个文件，成功 {1} 个，失败 {2} 个。", filenames.Length, filesOpened, failedFiles.Count);
+                string detail = string.Join("\n\n", failedFiles.ToArray());
+                MessageBox.Show(this, summary + "\n\n失败详情：\n\n" + detail, "批量打开结果", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
             return filesOpened;
+        }
+
+        /// <summary>
+        /// 克隆 Tail 配置，避免多窗口共享可变对象。
+        /// </summary>
+        private static TailFileConfig CloneTailFileConfig(TailFileConfig source)
+        {
+            if (source == null)
+                return new TailFileConfig();
+
+            TailFileConfig clone = new TailFileConfig
+            {
+                FilePath = source.FilePath,
+                FileEncoding = source.FileEncoding,
+                FileCacheSize = source.FileCacheSize,
+                FileCheckInterval = source.FileCheckInterval,
+                FileChangeCheckInterval = source.FileChangeCheckInterval,
+                FileCheckPattern = source.FileCheckPattern,
+                TitleMatchFilename = source.TitleMatchFilename,
+                TextColor = source.TextColor,
+                BackColor = source.BackColor,
+                Font = source.Font,
+                FontInvariant = source.FontInvariant,
+                BookmarkTextColor = source.BookmarkTextColor,
+                BookmarkBackColor = source.BookmarkBackColor,
+                Modeless = source.Modeless,
+                Title = source.Title,
+                WindowState = source.WindowState,
+                WindowSize = source.WindowSize,
+                WindowPosition = source.WindowPosition,
+                ServiceName = source.ServiceName,
+                ServiceMachineName = source.ServiceMachineName,
+                IconFile = source.IconFile,
+                DisplayTabIcon = source.DisplayTabIcon,
+                ColumnFilterActive = source.ColumnFilterActive,
+                QuickKeyword = source.QuickKeyword,
+                QuickHighlight = source.QuickHighlight,
+                QuickHighlightColor = source.QuickHighlightColor,
+                QuickFilter = source.QuickFilter,
+                QuickInverse = source.QuickInverse
+            };
+
+            // 复制列表，避免跨窗口共享集合引用。
+            if (source.ColumnFilters != null)
+            {
+                clone.ColumnFilters = new List<List<string>>(source.ColumnFilters.Count);
+                foreach (List<string> filters in source.ColumnFilters)
+                    clone.ColumnFilters.Add(filters != null ? new List<string>(filters) : null);
+            }
+
+            if (source.KeywordHighlight != null)
+            {
+                clone.KeywordHighlight = new List<TailKeywordConfig>(source.KeywordHighlight.Count);
+                foreach (TailKeywordConfig keyword in source.KeywordHighlight)
+                    clone.KeywordHighlight.Add(keyword != null ? CloneKeyword(keyword) : null);
+            }
+
+            if (source.ExternalTools != null)
+            {
+                clone.ExternalTools = new List<ExternalToolConfig>(source.ExternalTools.Count);
+                foreach (ExternalToolConfig tool in source.ExternalTools)
+                    clone.ExternalTools.Add(tool != null ? CloneExternalTool(tool) : null);
+            }
+
+            if (source.EnabledDisplayPlugins != null)
+                clone.EnabledDisplayPlugins = new List<string>(source.EnabledDisplayPlugins);
+
+            return clone;
+        }
+
+        /// <summary>
+        /// 克隆关键字配置，隔离运行时字段。
+        /// </summary>
+        private static TailKeywordConfig CloneKeyword(TailKeywordConfig source)
+        {
+            return new TailKeywordConfig
+            {
+                Keyword = source.Keyword,
+                MatchCaseSensitive = source.MatchCaseSensitive,
+                MatchRegularExpression = source.MatchRegularExpression,
+                LogHitCounter = source.LogHitCounter,
+                ExternalToolName = source.ExternalToolName,
+                TextColoring = source.TextColoring,
+                AlertHighlight = source.AlertHighlight,
+                TextColor = source.TextColor,
+                BackColor = source.BackColor
+            };
+        }
+
+        /// <summary>
+        /// 克隆外部工具配置，避免共享同一实例。
+        /// </summary>
+        private static ExternalToolConfig CloneExternalTool(ExternalToolConfig source)
+        {
+            return new ExternalToolConfig
+            {
+                Name = source.Name,
+                Command = source.Command,
+                Arguments = source.Arguments,
+                InitialDirectory = source.InitialDirectory,
+                ShortcutKey = source.ShortcutKey,
+                RunAsAdmin = source.RunAsAdmin,
+                HideWindow = source.HideWindow
+            };
         }
 
         /// <summary>
@@ -539,6 +633,8 @@ namespace SnakeTail
         {
             if ((_MDITabControl.SelectedTab != null) && (_MDITabControl.SelectedTab.Tag != null))
             {
+                // 切到该页即视为已读，清除红点。
+                SetMdiTabChanged(_MDITabControl.SelectedTab.Tag as Form, false);
                 SuspendLayout();
                 (_MDITabControl.SelectedTab.Tag as Form).SuspendLayout();
                 Form activeMdiChild = this.ActiveMdiChild;
@@ -574,6 +670,63 @@ namespace SnakeTail
                 _separatorTabContext.Visible = enablePath;
 
                 _tabContextMenuStrip.Show(sender as TabControl, e.Location);
+            }
+        }
+
+        private void _MDITabControl_DrawItem(object sender, DrawItemEventArgs e)
+        {
+            if (e.Index < 0 || e.Index >= _MDITabControl.TabPages.Count)
+                return;
+
+            TabPage tabPage = _MDITabControl.TabPages[e.Index];
+            bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+            bool changed = !selected && IsTabChanged(tabPage);
+            Rectangle bounds = e.Bounds;
+            Color backgroundColor = selected ? SystemColors.ControlLightLight : SystemColors.Control;
+
+            using (SolidBrush backgroundBrush = new SolidBrush(backgroundColor))
+            {
+                e.Graphics.FillRectangle(backgroundBrush, bounds);
+            }
+
+            Rectangle contentRect = Rectangle.Inflate(bounds, -4, -2);
+            int x = contentRect.X;
+            if (_MDITabControl.ImageList != null && tabPage.ImageIndex >= 0 && tabPage.ImageIndex < _MDITabControl.ImageList.Images.Count)
+            {
+                Image tabImage = _MDITabControl.ImageList.Images[tabPage.ImageIndex];
+                int imageY = contentRect.Y + (contentRect.Height - tabImage.Height) / 2;
+                e.Graphics.DrawImage(tabImage, x, imageY, tabImage.Width, tabImage.Height);
+                x += tabImage.Width + 4;
+            }
+
+            int textRightPadding = changed ? 12 : 2;
+            Rectangle textRect = new Rectangle(
+                x,
+                contentRect.Y,
+                Math.Max(0, contentRect.Right - x - textRightPadding),
+                contentRect.Height);
+
+            TextRenderer.DrawText(
+                e.Graphics,
+                tabPage.Text,
+                _MDITabControl.Font,
+                textRect,
+                SystemColors.ControlText,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+
+            if (changed)
+            {
+                // 红点表示“当前未查看到的文件变更”。
+                int dotSize = 8;
+                int dotX = bounds.Right - dotSize - 6;
+                int dotY = bounds.Top + (bounds.Height - dotSize) / 2;
+                Rectangle dotRect = new Rectangle(dotX, dotY, dotSize, dotSize);
+                using (SolidBrush redDotBrush = new SolidBrush(Color.FromArgb(220, 53, 69)))
+                {
+                    e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                    e.Graphics.FillEllipse(redDotBrush, dotRect);
+                    e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.Default;
+                }
             }
         }
 
@@ -653,10 +806,33 @@ namespace SnakeTail
         private void loadSessionToolStripMenuItem_Click(object sender, EventArgs e)
         {
             OpenFileDialog openFileDialog = new OpenFileDialog();
+            // 允许一次选择多个会话文件并按顺序加载。
+            openFileDialog.Multiselect = true;
             openFileDialog.Filter = "Xml files (*.xml)|*.xml|All files (*.*)|*.*";
             if (openFileDialog.ShowDialog(this) == DialogResult.OK)
             {
-                LoadSession(openFileDialog.FileName);
+                int loadedCount = 0;
+                List<string> failedSessions = new List<string>();
+                foreach (string sessionFile in openFileDialog.FileNames)
+                {
+                    if (LoadSession(sessionFile))
+                    {
+                        ++loadedCount;
+                    }
+                    else
+                    {
+                        string reason = string.IsNullOrEmpty(_lastSessionLoadErrorReason) ? "会话加载失败（未返回详细原因）" : _lastSessionLoadErrorReason;
+                        failedSessions.Add(string.Format("{0}\n  原因: {1}", sessionFile, reason));
+                        AppLog.AppendDaily(AppLog.LevelErr, string.Format("批量打开会话失败: Session={0}, Error={1}", sessionFile, reason));
+                    }
+                }
+
+                if (failedSessions.Count > 0)
+                {
+                    string summary = string.Format("共选择 {0} 个会话，成功 {1} 个，失败 {2} 个。", openFileDialog.FileNames.Length, loadedCount, failedSessions.Count);
+                    string detail = string.Join("\n\n", failedSessions.ToArray());
+                    MessageBox.Show(this, summary + "\n\n失败详情：\n\n" + detail, "批量打开会话结果", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
             }
         }
 
@@ -769,6 +945,7 @@ namespace SnakeTail
 
         private TailConfig LoadSessionFile(string filepath)
         {
+            _lastSessionLoadErrorReason = null;
             TailConfig tailConfig = null;
             try
             {
@@ -782,15 +959,30 @@ namespace SnakeTail
             }
             catch (Exception ex)
             {
-                string errorMsg = ex.Message;
-                while (ex.InnerException != null)
-                {
-                    ex = ex.InnerException;
-                    errorMsg += "\n" + ex.Message;
-                }
+                string errorMsg = BuildExceptionMessage(ex);
+                _lastSessionLoadErrorReason = errorMsg;
+                AppLog.AppendDaily(AppLog.LevelErr, string.Format("打开会话文件失败: File={0}, Error={1}", filepath, errorMsg));
                 MessageBox.Show(this, "Failed to open session xml file, please ensure it is valid file:\n\n   " + filepath + "\n\n" + errorMsg, "", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// 拼接异常链信息，确保失败原因精确可追踪。
+        /// </summary>
+        private static string BuildExceptionMessage(Exception ex)
+        {
+            if (ex == null)
+                return "Unknown exception (null)";
+
+            List<string> errors = new List<string>();
+            Exception current = ex;
+            while (current != null)
+            {
+                errors.Add(string.Format("{0}: {1}", current.GetType().FullName, current.Message));
+                current = current.InnerException;
+            }
+            return string.Join("\n", errors.ToArray());
         }
 
         private bool LoadSession(string filepath, bool addToMru = true)
@@ -1361,19 +1553,6 @@ namespace SnakeTail
             }
             finally
             {
-                lock (_folderWatchers)
-                {
-                    foreach (var w in _folderWatchers.Values)
-                    {
-                        try
-                        {
-                            w.Created -= FolderWatcher_Created;
-                            w.Dispose();
-                        }
-                        catch { }
-                    }
-                    _folderWatchers.Clear();
-                }
                 // 最后才将 _instance 设置为 null，确保异常处理可以访问它
                 _instance = null;
             }

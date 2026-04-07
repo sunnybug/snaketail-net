@@ -106,6 +106,13 @@ namespace SnakeTail
 
                 if (result.Handled)
                 {
+                    // 块插件返回多行时，按原始行数把输出逐行回填到缓存，保持一一对应显示。
+                    if (TryCacheBlockOutputByLine(lineKey, signature, textForPlugin, result.Output, out string currentLineOutput))
+                    {
+                        _lineCache[cacheKey] = currentLineOutput;
+                        return currentLineOutput;
+                    }
+
                     if (result.Output != null)
                         currentText = result.Output;
                     break;
@@ -117,6 +124,34 @@ namespace SnakeTail
 
             _lineCache[cacheKey] = currentText;
             return currentText;
+        }
+
+        /// <summary>
+        /// 当块输入与块输出行数一致时，按行号写入缓存并返回当前行输出。
+        /// </summary>
+        private bool TryCacheBlockOutputByLine(int startLineKey, string signature, string blockInput, string blockOutput, out string currentLineOutput)
+        {
+            currentLineOutput = string.Empty;
+            if (string.IsNullOrEmpty(blockInput) || string.IsNullOrEmpty(blockOutput))
+                return false;
+
+            if (!blockInput.Contains(Environment.NewLine) || !blockOutput.Contains(Environment.NewLine))
+                return false;
+
+            string[] inputLines = blockInput.Split(new[] { Environment.NewLine }, StringSplitOptions.None);
+            string[] outputLines = blockOutput.Split(new[] { Environment.NewLine }, StringSplitOptions.None);
+            if (inputLines.Length != outputLines.Length)
+                return false;
+
+            for (int i = 0; i < outputLines.Length; i++)
+            {
+                int lineKey = startLineKey + i;
+                string lineCacheKey = string.Format("{0}|{1}", lineKey, signature);
+                _lineCache[lineCacheKey] = outputLines[i];
+            }
+
+            currentLineOutput = outputLines[0];
+            return true;
         }
 
         /// <summary>

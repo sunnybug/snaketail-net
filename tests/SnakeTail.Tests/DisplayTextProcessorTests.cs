@@ -76,6 +76,43 @@ public class DisplayTextProcessorTests
         Assert.Equal(0, linePlugin.TryProcessCallCount);
     }
 
+    [Fact]
+    public void Processor_should_keep_multiline_block_output_line_by_line()
+    {
+        // 验证块插件输出多行时，处理结果按原始行号一一对应缓存。
+        var blockPlugin = new TwoLineRewriteBlockPlugin();
+        var processor = new DisplayTextProcessor();
+        processor.SetEnabledPlugins(
+        [
+            new LoadedDisplayPlugin("A", "A", "TwoLineRewrite", blockPlugin)
+        ]);
+
+        var lines = new Dictionary<int, string>
+        {
+            [500] = "\"skills\": [",
+            [501] = "  10013001,",
+            [502] = "]"
+        };
+
+        string line500 = processor.GetProcessedLineText(
+            500,
+            lines[500],
+            lineKey => lines.TryGetValue(lineKey, out string? text) ? text : string.Empty);
+        string line501 = processor.GetProcessedLineText(
+            501,
+            lines[501],
+            lineKey => lines.TryGetValue(lineKey, out string? text) ? text : string.Empty);
+        string line502 = processor.GetProcessedLineText(
+            502,
+            lines[502],
+            lineKey => lines.TryGetValue(lineKey, out string? text) ? text : string.Empty);
+
+        Assert.Equal("\"skills\": [", line500);
+        Assert.Equal("  10013001 龙息,", line501);
+        Assert.Equal("]", line502);
+        Assert.Equal(1, blockPlugin.TryProcessCallCount);
+    }
+
     private sealed class CountingPlugin : ILogDisplayPlugin
     {
         private readonly bool _canProcess;
@@ -136,6 +173,46 @@ public class DisplayTextProcessorTests
         {
             TryProcessCallCount++;
             return new PluginProcessResult { Handled = true, Output = "BLOCK_OK" };
+        }
+    }
+
+    private sealed class TwoLineRewriteBlockPlugin : ILogDisplayPlugin, ILogDisplayBlockPlugin
+    {
+        public string Name => "TwoLineRewrite";
+        public int TryProcessCallCount { get; private set; }
+
+        public void Initialize(PluginContext context)
+        {
+            // 测试插件无需初始化逻辑
+        }
+
+        public bool TryCollectBlock(int lineKey, string currentLine, Func<int, string> readLineByLineKey, out string blockText)
+        {
+            if (lineKey != 500)
+            {
+                blockText = string.Empty;
+                return false;
+            }
+
+            string secondLine = readLineByLineKey(lineKey + 1);
+            string thirdLine = readLineByLineKey(lineKey + 2);
+            blockText = string.Join(Environment.NewLine, currentLine, secondLine, thirdLine);
+            return true;
+        }
+
+        public bool CanProcess(string line)
+        {
+            return line.Contains(Environment.NewLine);
+        }
+
+        public PluginProcessResult TryProcess(string line)
+        {
+            TryProcessCallCount++;
+            return new PluginProcessResult
+            {
+                Handled = true,
+                Output = "\"skills\": [" + Environment.NewLine + "  10013001 龙息," + Environment.NewLine + "]"
+            };
         }
     }
 }

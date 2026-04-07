@@ -187,6 +187,81 @@ public class DisplayPluginDiscoveryAndDragonMaidTests
     }
 
     [Fact]
+    public void DragonMaid_should_append_skill_name_for_quoted_skills_list()
+    {
+        // 验证 "skills": [id,...] 单行数组可逐个映射并追加技能名。
+        string tempRoot = Path.Combine(Path.GetTempPath(), "snaketail-plugin-test-" + Guid.NewGuid().ToString("N"));
+        string pluginDir = Path.Combine(tempRoot, "config", "plugins", "龙女仆");
+        Directory.CreateDirectory(pluginDir);
+        try
+        {
+            string jsonPath = Path.Combine(pluginDir, "s_skill.json");
+            File.WriteAllText(jsonPath, """{"s_skill":[[10013001,"龙息"],[10007001,"横扫"]] }""");
+
+            var plugin = new DragonMaidDisplayPlugin();
+            var context = new PluginContext(pluginDir, Path.Combine(tempRoot, "config"), Path.Combine(tempRoot, "fake.log"), "1.0.0");
+            plugin.Initialize(context);
+
+            PluginProcessResult result = plugin.TryProcess("""abc "skills": [10013001,10007001,10001001] def""");
+
+            Assert.True(result.Handled);
+            Assert.Equal("""abc "skills": [10013001 龙息,10007001 横扫,10001001] def""", result.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DragonMaid_should_append_skill_name_for_multiline_skills_block()
+    {
+        // 验证 "skills": [ ... ] 多行数组可逐行映射并追加技能名。
+        string tempRoot = Path.Combine(Path.GetTempPath(), "snaketail-plugin-test-" + Guid.NewGuid().ToString("N"));
+        string pluginDir = Path.Combine(tempRoot, "config", "plugins", "龙女仆");
+        Directory.CreateDirectory(pluginDir);
+        try
+        {
+            string jsonPath = Path.Combine(pluginDir, "s_skill.json");
+            File.WriteAllText(jsonPath, """{"s_skill":[[10013001,"龙息"],[10007001,"横扫"]] }""");
+
+            var plugin = new DragonMaidDisplayPlugin();
+            var context = new PluginContext(pluginDir, Path.Combine(tempRoot, "config"), Path.Combine(tempRoot, "fake.log"), "1.0.0");
+            plugin.Initialize(context);
+
+            var lines = new Dictionary<int, string>
+            {
+                [300] = "\"skills\": [",
+                [301] = "  10013001,",
+                [302] = "  10007001,",
+                [303] = "  10001001",
+                [304] = "],",
+                [305] = "\"other\": 1"
+            };
+
+            bool collected = ((ILogDisplayBlockPlugin)plugin).TryCollectBlock(
+                300,
+                lines[300],
+                lineKey => lines.TryGetValue(lineKey, out string? text) ? text : string.Empty,
+                out string blockText);
+
+            Assert.True(collected);
+            PluginProcessResult result = plugin.TryProcess(blockText);
+            Assert.True(result.Handled);
+            string[] outputLines = result.Output.Split(new[] { Environment.NewLine }, StringSplitOptions.None);
+            Assert.Equal("\"skills\": [", outputLines[0]);
+            Assert.Equal("  10013001 龙息,", outputLines[1]);
+            Assert.Equal("  10007001 横扫,", outputLines[2]);
+            Assert.Equal("  10001001", outputLines[3]);
+            Assert.Equal("],", outputLines[4]);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void DragonMaid_should_expand_battle_effect_key_name_for_multiline_block()
     {
         // 验证 effects 多行块可按 key 映射扩展名称。

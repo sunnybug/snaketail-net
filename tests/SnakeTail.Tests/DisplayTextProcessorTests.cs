@@ -13,8 +13,8 @@ public class DisplayTextProcessorTests
         var processor = new DisplayTextProcessor();
         processor.SetEnabledPlugins(
         [
-            new LoadedDisplayPlugin("A", "A", "P1", firstPlugin),
-            new LoadedDisplayPlugin("B", "B", "P2", secondPlugin)
+            new LoadedDisplayPlugin("A", "A", "P1", firstPlugin, true, string.Empty),
+            new LoadedDisplayPlugin("B", "B", "P2", secondPlugin, true, string.Empty)
         ]);
 
         string output = processor.GetProcessedLineText(10, "raw");
@@ -30,7 +30,7 @@ public class DisplayTextProcessorTests
         // 验证同一行与同一插件签名下命中缓存
         var plugin = new CountingPlugin("P1", canProcess: true, handled: true, output: "cached");
         var processor = new DisplayTextProcessor();
-        processor.SetEnabledPlugins([new LoadedDisplayPlugin("A", "A", "P1", plugin)]);
+        processor.SetEnabledPlugins([new LoadedDisplayPlugin("A", "A", "P1", plugin, true, string.Empty)]);
 
         string output1 = processor.GetProcessedLineText(20, "raw");
         string output2 = processor.GetProcessedLineText(20, "raw");
@@ -41,7 +41,7 @@ public class DisplayTextProcessorTests
 
         // 修改插件顺序签名后，缓存应失效并重新计算
         processor.SetEnabledPlugins([]);
-        processor.SetEnabledPlugins([new LoadedDisplayPlugin("A", "A", "P1", plugin)]);
+        processor.SetEnabledPlugins([new LoadedDisplayPlugin("A", "A", "P1", plugin, true, string.Empty)]);
         _ = processor.GetProcessedLineText(20, "raw");
         Assert.Equal(2, plugin.TryProcessCallCount);
     }
@@ -55,8 +55,8 @@ public class DisplayTextProcessorTests
         var processor = new DisplayTextProcessor();
         processor.SetEnabledPlugins(
         [
-            new LoadedDisplayPlugin("A", "A", "BlockFirst", blockPlugin),
-            new LoadedDisplayPlugin("B", "B", "LineSecond", linePlugin)
+            new LoadedDisplayPlugin("A", "A", "BlockFirst", blockPlugin, true, string.Empty),
+            new LoadedDisplayPlugin("B", "B", "LineSecond", linePlugin, true, string.Empty)
         ]);
 
         var lines = new Dictionary<int, string>
@@ -84,7 +84,7 @@ public class DisplayTextProcessorTests
         var processor = new DisplayTextProcessor();
         processor.SetEnabledPlugins(
         [
-            new LoadedDisplayPlugin("A", "A", "TwoLineRewrite", blockPlugin)
+            new LoadedDisplayPlugin("A", "A", "TwoLineRewrite", blockPlugin, true, string.Empty)
         ]);
 
         var lines = new Dictionary<int, string>

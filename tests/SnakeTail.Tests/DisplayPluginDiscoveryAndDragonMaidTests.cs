@@ -49,6 +49,35 @@ public class DisplayPluginDiscoveryAndDragonMaidTests
     }
 
     [Fact]
+    public void TryLoadPluginDirectory_should_keep_plugin_visible_when_required_config_missing()
+    {
+        // 验证插件缺少必需配置时仍可被发现，并返回精确原因供 UI 提示。
+        string tempRoot = Path.Combine(Path.GetTempPath(), "snaketail-plugin-missing-config-" + Guid.NewGuid().ToString("N"));
+        string pluginRoot = Path.Combine(tempRoot, "config", "plugins");
+        string pluginDir = Path.Combine(pluginRoot, "龙女仆");
+        Directory.CreateDirectory(pluginDir);
+        try
+        {
+            string sourceAssemblyPath = typeof(DragonMaidDisplayPlugin).Assembly.Location;
+            File.Copy(sourceAssemblyPath, Path.Combine(pluginDir, Path.GetFileName(sourceAssemblyPath)), overwrite: true);
+
+            var manager = new DisplayPluginManager(tempRoot);
+            bool loaded = manager.TryLoadPluginDirectory(pluginDir, "龙女仆", string.Empty, out LoadedDisplayPlugin? loadedPlugin);
+
+            Assert.True(loaded);
+            Assert.NotNull(loadedPlugin);
+            Assert.Equal("龙女仆", loadedPlugin.DisplayName);
+            Assert.False(loadedPlugin.IsAvailable);
+            Assert.Contains("未找到 s_skill.json", loadedPlugin.UnavailableReason);
+            Assert.Contains(Path.Combine(pluginDir, "s_skill.json"), loadedPlugin.UnavailableReason);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void DragonMaid_should_append_skill_name_for_known_id()
     {
         // 验证龙女仆插件对 skills 命中技能 ID 的替换效果

@@ -161,9 +161,13 @@ namespace SnakeTail
             foreach (string pluginName in enabledPluginNames)
             {
                 LoadedDisplayPlugin plugin = _displayPluginManager.FindByDisplayName(pluginName);
-                if (plugin != null)
+                if (plugin != null && plugin.IsAvailable)
                 {
                     enabledPlugins.Add(plugin);
+                }
+                else if (plugin != null)
+                {
+                    AppLog.AppendDaily(AppLog.LevelWarn, string.Format("配置引用的显示插件缺少配置文件，未启用: Plugin={0}, File={1}, Reason={2}", pluginName, tailConfig.FilePath, plugin.UnavailableReason));
                 }
                 else
                 {
@@ -186,7 +190,10 @@ namespace SnakeTail
 
             foreach (LoadedDisplayPlugin plugin in _availableDisplayPlugins)
             {
-                ToolStripMenuItem pluginMenuItem = new ToolStripMenuItem(plugin.DisplayName);
+                string pluginMenuText = plugin.IsAvailable
+                    ? plugin.DisplayName
+                    : string.Format("{0}（缺少配置）", plugin.DisplayName);
+                ToolStripMenuItem pluginMenuItem = new ToolStripMenuItem(pluginMenuText);
                 pluginMenuItem.CheckOnClick = true;
                 pluginMenuItem.Checked = _displayTextProcessor.EnabledPlugins.Any(x => string.Equals(x.DisplayName, plugin.DisplayName, StringComparison.CurrentCultureIgnoreCase));
                 pluginMenuItem.Tag = plugin.DisplayName;
@@ -209,6 +216,21 @@ namespace SnakeTail
             LoadedDisplayPlugin targetPlugin = _displayPluginManager != null ? _displayPluginManager.FindByDisplayName(pluginName) : null;
             if (targetPlugin == null)
                 return;
+
+            // 缺少配置时给出精确提示，并撤销本次启用。
+            if (menuItem.Checked && !targetPlugin.IsAvailable)
+            {
+                menuItem.Checked = false;
+                string unavailableReason = string.IsNullOrWhiteSpace(targetPlugin.UnavailableReason)
+                    ? "缺少插件所需配置文件。"
+                    : targetPlugin.UnavailableReason;
+                MessageBox.Show(this,
+                    string.Format("插件“{0}”无法启用。\n\n原因：{1}", targetPlugin.DisplayName, unavailableReason),
+                    "插件启用失败",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
 
             if (menuItem.Checked)
             {

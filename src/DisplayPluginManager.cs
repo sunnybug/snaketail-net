@@ -11,18 +11,22 @@ namespace SnakeTail
     /// </summary>
     internal sealed class LoadedDisplayPlugin
     {
-        public LoadedDisplayPlugin(string directoryName, string pluginDirectoryPath, string displayName, ILogDisplayPlugin instance)
+        public LoadedDisplayPlugin(string directoryName, string pluginDirectoryPath, string displayName, ILogDisplayPlugin instance, bool isAvailable, string unavailableReason)
         {
             DirectoryName = directoryName;
             PluginDirectoryPath = pluginDirectoryPath;
             DisplayName = displayName;
             Instance = instance;
+            IsAvailable = isAvailable;
+            UnavailableReason = unavailableReason ?? string.Empty;
         }
 
         public string DirectoryName { get; }
         public string PluginDirectoryPath { get; }
         public string DisplayName { get; }
         public ILogDisplayPlugin Instance { get; }
+        public bool IsAvailable { get; }
+        public string UnavailableReason { get; }
     }
 
     /// <summary>
@@ -165,18 +169,50 @@ namespace SnakeTail
             {
                 plugin.Initialize(context);
             }
+            catch (FileNotFoundException ex)
+            {
+                string pluginName = GetPluginDisplayName(plugin, pluginDirectoryName);
+                string unavailableReason = BuildMissingConfigReason(ex);
+                AppLog.AppendDaily(AppLog.LevelWarn, string.Format("插件缺少配置文件，暂不可启用: Dll={0}, Plugin={1}, Reason={2}", assemblyPath, pluginName, unavailableReason));
+                loadedPlugin = new LoadedDisplayPlugin(pluginDirectoryName, pluginDirectoryPath, pluginName, null, false, unavailableReason);
+                return true;
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                string pluginName = GetPluginDisplayName(plugin, pluginDirectoryName);
+                string unavailableReason = string.Format("缺少配置目录：{0}", ex.Message);
+                AppLog.AppendDaily(AppLog.LevelWarn, string.Format("插件缺少配置目录，暂不可启用: Dll={0}, Plugin={1}, Reason={2}", assemblyPath, pluginName, unavailableReason));
+                loadedPlugin = new LoadedDisplayPlugin(pluginDirectoryName, pluginDirectoryPath, pluginName, null, false, unavailableReason);
+                return true;
+            }
             catch (Exception ex)
             {
                 AppLog.AppendDaily(AppLog.LevelErr, string.Format("插件初始化失败: Dll={0}, Plugin={1}, Error={2}: {3}", assemblyPath, plugin.GetType().FullName, ex.GetType().FullName, ex.Message));
                 return false;
             }
 
-            string pluginName = plugin.Name;
+            string pluginDisplayName = GetPluginDisplayName(plugin, pluginDirectoryName);
+            loadedPlugin = new LoadedDisplayPlugin(pluginDirectoryName, pluginDirectoryPath, pluginDisplayName, plugin, true, string.Empty);
+            return true;
+        }
+
+        // 统一解析插件显示名，避免重复空值分支。
+        private static string GetPluginDisplayName(ILogDisplayPlugin plugin, string pluginDirectoryName)
+        {
+            string pluginName = plugin != null ? plugin.Name : string.Empty;
             if (string.IsNullOrWhiteSpace(pluginName))
                 pluginName = pluginDirectoryName;
+            return pluginName;
+        }
 
-            loadedPlugin = new LoadedDisplayPlugin(pluginDirectoryName, pluginDirectoryPath, pluginName, plugin);
-            return true;
+        // 精确拼出缺失配置文件原因，供 UI 提示与日志复用。
+        private static string BuildMissingConfigReason(FileNotFoundException ex)
+        {
+            string missingPath = ex.FileName;
+            if (!string.IsNullOrWhiteSpace(missingPath))
+                return string.Format("{0}：{1}", ex.Message, missingPath);
+
+            return ex.Message;
         }
 
         /// <summary>

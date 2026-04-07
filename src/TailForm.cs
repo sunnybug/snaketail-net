@@ -336,24 +336,32 @@ namespace SnakeTail
         }
 
         /// <summary>
-        /// 搜索时按场景选择最轻的文本来源。
+        /// 普通文本搜索只搜原文；高亮搜索沿用显示侧文本。
         /// </summary>
         private string GetSearchLineTextByVirtualIndex(int virtualIndex, bool lineHighlights)
         {
-            if (lineHighlights || _displayTextProcessor.EnabledPlugins.Count > 0)
+            if (ShouldSearchProcessedText(lineHighlights))
                 return GetProcessedLineTextByVirtualIndex(virtualIndex);
 
             return GetRawLineTextByVirtualIndex(virtualIndex);
         }
 
         /// <summary>
-        /// 普通文本搜索且无插件/过滤时，允许直接顺序扫原文。
+        /// 搜索是否需要走处理后文本。
+        /// </summary>
+        internal static bool ShouldSearchProcessedText(bool lineHighlights)
+        {
+            // 高亮搜索依赖显示链路；普通文本搜索只看原文。
+            return lineHighlights;
+        }
+
+        /// <summary>
+        /// 普通文本搜索且无过滤时，允许直接顺序扫原文。
         /// </summary>
         private bool CanUseDirectRawSearch(bool lineHighlights)
         {
-            return !lineHighlights
+            return !ShouldSearchProcessedText(lineHighlights)
                 && !_quickFilter
-                && _displayTextProcessor.EnabledPlugins.Count == 0
                 && _logFileStream != null;
         }
 
@@ -366,6 +374,20 @@ namespace SnakeTail
             if (unchecked(currentTick - lastPumpTick) < 50)
                 return;
 
+            Application.DoEvents();
+            lastPumpTick = currentTick;
+        }
+
+        /// <summary>
+        /// 低频刷新搜索进度，减少 UI 更新开销。
+        /// </summary>
+        private void UpdateSearchProgressIfNeeded(int currentIndex, int endIndex, ref int lastPumpTick)
+        {
+            int currentTick = Environment.TickCount;
+            if (unchecked(currentTick - lastPumpTick) < 50)
+                return;
+
+            SetStatusBar("Searching...", currentIndex, endIndex);
             Application.DoEvents();
             lastPumpTick = currentTick;
         }
@@ -1238,23 +1260,23 @@ namespace SnakeTail
         /// </summary>
         private int SearchForRawTextForward(string searchText, bool matchCase, int startIndex, int endIndex, ref int lastPumpTick)
         {
-            for (int i = startIndex; i < endIndex; ++i)
-            {
-                if (i % _logFileCache.Items.Count == 0)
+            int startLineNumber = _savedLineNumber + startIndex + 1;
+            int endLineNumberExclusive = _savedLineNumber + endIndex + 1;
+            int progressTick = lastPumpTick;
+            int matchedLineNumber = _logFileStream.SearchTextRange(
+                startLineNumber,
+                endLineNumberExclusive,
+                searchText,
+                matchCase,
+                findLastMatch: false,
+                progressCallback: currentLineNumber =>
                 {
-                    SetStatusBar("Searching...", i, endIndex);
-                    PumpSearchUiIfNeeded(ref lastPumpTick);
-                }
-
-                int lineNumber = _savedLineNumber + i + 1;
-                string lineText = _logFileStream.ReadLine(lineNumber) ?? string.Empty;
-                if (MatchTextSearch(i, lineText, searchText, matchCase, false))
-                    return i;
-
-                PumpSearchUiIfNeeded(ref lastPumpTick);
-            }
-
-            return -1;
+                    int currentIndex = currentLineNumber - _savedLineNumber - 1;
+                    UpdateSearchProgressIfNeeded(currentIndex, endIndex, ref progressTick);
+                });
+            UpdateSearchProgressIfNeeded(endIndex, endIndex, ref progressTick);
+            lastPumpTick = progressTick;
+            return matchedLineNumber == -1 ? -1 : matchedLineNumber - _savedLineNumber - 1;
         }
 
         public bool SearchForText(string searchText, bool matchCase, bool searchForward, bool lineHighlights, bool wrapAround)
@@ -1322,30 +1344,36 @@ namespace SnakeTail
             // 反向搜索改为正向扫描记录最后命中，避免按递减行号反复从文件头重读。
             int lastPumpTick = Environment.TickCount;
             int lastMatchFound = -1;
+            if (CanUseDirectRawSearch(lineHighlights))
+            {
+                int startLineNumber = _savedLineNumber + startIndex + 1;
+                int endLineNumberExclusive = _savedLineNumber + endIndex + 1;
+                int progressTick = lastPumpTick;
+                int matchedLineNumber = _logFileStream.SearchTextRange(
+                    startLineNumber,
+                    endLineNumberExclusive,
+                    searchText,
+                    matchCase,
+                    findLastMatch: true,
+                    progressCallback: currentLineNumber =>
+                    {
+                        int currentIndex = currentLineNumber - _savedLineNumber - 1;
+                        UpdateSearchProgressIfNeeded(currentIndex, endIndex, ref progressTick);
+                    });
+                UpdateSearchProgressIfNeeded(endIndex, endIndex, ref progressTick);
+                lastPumpTick = progressTick;
+                return matchedLineNumber == -1 ? -1 : matchedLineNumber - _savedLineNumber - 1;
+            }
+
             for (int i = startIndex; i < endIndex; ++i)
             {
-                if (i % _logFileCache.Items.Count == 0)
-                {
-                    SetStatusBar("Searching...", i, endIndex);
-                    PumpSearchUiIfNeeded(ref lastPumpTick);
-                }
+                UpdateSearchProgressIfNeeded(i, endIndex, ref lastPumpTick);
 
-                string lineText;
-                if (CanUseDirectRawSearch(lineHighlights))
-                {
-                    int lineNumber = _savedLineNumber + i + 1;
-                    lineText = _logFileStream.ReadLine(lineNumber) ?? string.Empty;
-                }
-                else
-                {
-                    lineText = GetSearchLineTextByVirtualIndex(i, lineHighlights);
-                }
-
+                string lineText = GetSearchLineTextByVirtualIndex(i, lineHighlights);
                 if (MatchTextSearch(i, lineText, searchText, matchCase, lineHighlights))
                     lastMatchFound = i;
-
-                PumpSearchUiIfNeeded(ref lastPumpTick);
             }
+
             return lastMatchFound;
         }
 

@@ -609,6 +609,50 @@ namespace SnakeTail
             }
         }
 
+        /// <summary>
+        /// 连续扫描指定行区间，减少逐行重入开销。
+        /// </summary>
+        public int SearchTextRange(int startLineNumberInclusive, int endLineNumberExclusive, string searchText, bool matchCase, bool findLastMatch, Action<int> progressCallback)
+        {
+            if (startLineNumberInclusive <= 0 || endLineNumberExclusive <= startLineNumberInclusive)
+                return -1;
+
+            StringComparison comparison = matchCase
+                ? StringComparison.InvariantCulture
+                : StringComparison.InvariantCultureIgnoreCase;
+
+            string line = ReadLine(startLineNumberInclusive);
+            if (line == null)
+                return -1;
+
+            int matchedLineNumber = line.IndexOf(searchText, comparison) >= 0
+                ? startLineNumberInclusive
+                : -1;
+            if (matchedLineNumber != -1 && !findLastMatch)
+                return matchedLineNumber;
+
+            for (int lineNumber = startLineNumberInclusive + 1; lineNumber < endLineNumberExclusive; ++lineNumber)
+            {
+                if ((lineNumber - startLineNumberInclusive) % 1024 == 0 && progressCallback != null)
+                    progressCallback(lineNumber);
+
+                line = _fileReader.ReadLine();
+                if (line == null)
+                    break;
+
+                _lastLineNumber++;
+                if (line.IndexOf(searchText, comparison) < 0)
+                    continue;
+
+                matchedLineNumber = lineNumber;
+                if (!findLastMatch)
+                    break;
+            }
+
+            _lastFileCheck = DateTime.UtcNow;
+            return matchedLineNumber;
+        }
+
         // EOF 时按底层流长度重同步读取器，避免遗漏追加内容。
         bool TryResyncReaderAtEof()
         {

@@ -203,6 +203,12 @@ namespace SnakeTail
             get { return _fileCheckPattern; }
         }
 
+        // 当前读取器已消费到的行号，用于 UI 侧计算清屏偏移。
+        public int LastReadLineNumber
+        {
+            get { return _lastLineNumber; }
+        }
+
         public bool ValidLineCount(int lineCount)
         {
             if (_fileStream != null && _lastLineNumber == lineCount)

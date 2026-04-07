@@ -2950,9 +2950,10 @@ namespace SnakeTail
             if (_logTailStream == null)
                 return;
 
-            // 记住当前读取的log文件位置（行号）作为偏移量
-            // 这样 timer 会从 _savedLineNumber + 1 开始读取新行
-            _savedLineNumber = _savedLineNumber + _tailListView.VirtualListSize;
+            // 清屏偏移取“可见行累计”和“读取器真实已读行号”的较大值，避免后续从文件头重扫旧行。
+            int visibleOffset = _savedLineNumber + _tailListView.VirtualListSize;
+            int readerOffset = _logTailStream.LastReadLineNumber;
+            _savedLineNumber = Math.Max(visibleOffset, readerOffset);
 
             // 清空当前log的显示区域
             if (_logFileCache != null)

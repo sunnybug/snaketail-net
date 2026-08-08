@@ -1415,19 +1415,15 @@ namespace SnakeTail
             if (MdiParent == null)
             {
                 Icon = MainForm.Instance.Icon;
-                // Fix issue where ListView scrollbar was hidden behind statusbar
-                this.Controls.Remove(_statusStrip);
-                _statusStrip.Visible = true;
-                this.Controls.Add(_statusStrip);
             }
-            else
-            {
-                // 即使作为 MDI 子窗口，也保持状态栏可见以显示编码下拉框
-                _statusStrip.Visible = true;
-                // Fix issue where ListView scrollbar was hidden behind statusbar
-                this.Controls.Remove(_statusStrip);
-                this.Controls.Add(_statusStrip);
-            }
+
+            // 保证顶部关键字栏与底部状态栏在 Dock.Fill 内容区之上，
+            // 避免 ListView 重绘时盖住工具栏（表现为鼠标滑过才逐步露出）。
+            _statusStrip.Visible = true;
+            this.Controls.Remove(_keywordToolStrip);
+            this.Controls.Remove(_statusStrip);
+            this.Controls.Add(_keywordToolStrip);
+            this.Controls.Add(_statusStrip);
 
             _tailTimer.Enabled = true;
 

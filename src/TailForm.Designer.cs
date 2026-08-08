@@ -104,6 +104,7 @@ namespace SnakeTail
             this._highlightColorButton = new System.Windows.Forms.ToolStripButton();
             this._filterCheckBox = new System.Windows.Forms.ToolStripButton();
             this._inverseCheckBox = new System.Windows.Forms.ToolStripButton();
+            this._contentPanel = new System.Windows.Forms.Panel();
             this._tailListView = new SnakeTail.LogFileListView();
             this.hiddenItem = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.lineItem = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
@@ -116,6 +117,7 @@ namespace SnakeTail
             this._statusStrip.SuspendLayout();
             this._menuStrip.SuspendLayout();
             this._keywordToolStrip.SuspendLayout();
+            this._contentPanel.SuspendLayout();
             this.SuspendLayout();
             //
             // toolStripSeparator4
@@ -420,6 +422,7 @@ namespace SnakeTail
             this._filterCheckBox,
             this._inverseCheckBox,
             this._encodingComboBox});
+            this._keywordToolStrip.Dock = System.Windows.Forms.DockStyle.Top;
             this._keywordToolStrip.Location = new System.Drawing.Point(0, 0);
             this._keywordToolStrip.Name = "_keywordToolStrip";
             this._keywordToolStrip.Size = new System.Drawing.Size(332, 25);
@@ -473,6 +476,16 @@ namespace SnakeTail
             this._inverseCheckBox.Text = "反向";
             this._inverseCheckBox.Click += new System.EventHandler(this._inverseCheckBox_Click);
             //
+            // _contentPanel
+            //
+            // ListView 放在独立 Panel 中，避免 Dock.Fill 与顶部关键字栏叠层导致工具栏被盖住。
+            this._contentPanel.Controls.Add(this._tailListView);
+            this._contentPanel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this._contentPanel.Location = new System.Drawing.Point(0, 25);
+            this._contentPanel.Name = "_contentPanel";
+            this._contentPanel.Size = new System.Drawing.Size(332, 232);
+            this._contentPanel.TabIndex = 0;
+            //
             // _tailListView
             //
             this._tailListView.Columns.AddRange(new System.Windows.Forms.ColumnHeader[] {
@@ -484,8 +497,7 @@ namespace SnakeTail
             this._tailListView.FullRowSelect = true;
             this._tailListView.HeaderStyle = System.Windows.Forms.ColumnHeaderStyle.None;
             this._tailListView.HideSelection = false;
-            this._tailListView.Dock = System.Windows.Forms.DockStyle.Fill;
-            this._tailListView.Location = new System.Drawing.Point(0, 25);
+            this._tailListView.Location = new System.Drawing.Point(0, 0);
             this._tailListView.Margin = new System.Windows.Forms.Padding(0);
             this._tailListView.Name = "_tailListView";
             this._tailListView.OwnerDraw = true;
@@ -510,7 +522,7 @@ namespace SnakeTail
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(332, 279);
-            this.Controls.Add(this._tailListView);
+            this.Controls.Add(this._contentPanel);
             this.Controls.Add(this._keywordToolStrip);
             this.Controls.Add(this._statusStrip);
             this.Controls.Add(this._menuStrip);
@@ -532,6 +544,7 @@ namespace SnakeTail
             this._menuStrip.PerformLayout();
             this._keywordToolStrip.ResumeLayout(false);
             this._keywordToolStrip.PerformLayout();
+            this._contentPanel.ResumeLayout(false);
             this.ResumeLayout(false);
             this.PerformLayout();
 
@@ -539,6 +552,7 @@ namespace SnakeTail
 
         #endregion
 
+        private System.Windows.Forms.Panel _contentPanel;
         private LogFileListView _tailListView;
         private System.Windows.Forms.Timer _tailTimer;
         private System.Windows.Forms.ContextMenuStrip _contextMenuStrip;

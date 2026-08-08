@@ -61,6 +61,7 @@ VS Code 推荐扩展（见 `.vscode/extensions.json`）：**C# Dev Kit**（调�
 - 配置外部工具并绑定自定义快捷键（在高亮时触发执行）
 - 跟踪循环日志，其中日志文件会定期截断/重命名
 - 跟踪日志目录，显示最新的日志文件（支持通配符）
+  - 主菜单入口：`File -> Open Wildcard Monitor...`（快捷键 `Ctrl+Shift+O`），可直接配置目录通配符（如 `*.log`）并开始监控
 - 清空显示区域（快捷键 Ctrl+L）：记住当前读取的log文件位置，清空当前log的显示区域，从前一次读取的log文件位置继续读取；偏移量会优先采用读取器真实已读行号，避免大文件下清屏后重扫旧内容导致新日志显示延迟
 - 在整个文本日志文件（或 Windows 事件日志）中搜索
   - 长时间全文搜索会定期处理界面消息，避免窗口看起来卡死
@@ -128,3 +129,7 @@ VS Code 推荐扩展（见 `.vscode/extensions.json`）：**C# Dev Kit**（调�
   - 多行列表：命中 `"skills": [`（或 `skills: [`）起始并收集到 `]` 后，逐行将纯数字条目扩展为 `<数字> <技能名>`，保留原缩进与逗号。
   - 多行块：命中 `attr_data=effects {` 起始并收集连续 `effects` 结构块后，把 `key: <数字>` 扩展为 `key: <数字> <名称>`（如 `key: 1 声明`）。
 
+# Wildcard File Monitor MVP
+- This repo includes an MVP for a wildcard-based file monitor (WinForms) to watch a single directory non-recursively, using * and ? patterns, with dynamic discovery and tailed-file management.
+- UI entry: `File -> Open Wildcard Monitor...` (`Ctrl+Shift+O`) to configure wildcard path monitoring directly from menu.
+- See docs/plans/2026-04-07-wildcard-file-monitor-ui-design.md for details.

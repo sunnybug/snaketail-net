@@ -308,6 +308,85 @@ namespace SnakeTail
             OpenFileSelection(fileDialog.FileNames);
         }
 
+        private void openWildcardMonitorToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            EnsureDefaultTailConfig();
+
+            // 复用默认配置并强制开启“通配符路径监控”。
+            TailFileConfig tailConfig = CloneTailFileConfig(_defaultTailConfig);
+            tailConfig.FileCheckPattern = true;
+
+            TailConfigForm configForm = new TailConfigForm(tailConfig, true);
+            configForm.Text = "Open Wildcard Monitor";
+            DialogResult result = configForm.ShowDialog(this);
+            if (result != DialogResult.OK && result != DialogResult.Retry)
+                return;
+
+            TailFileConfig selectedConfig = configForm.TailFileConfig;
+            if (selectedConfig == null || string.IsNullOrWhiteSpace(selectedConfig.FilePath))
+            {
+                MessageBox.Show(this, "请输入要监控的路径（可带通配符，如 *.log）。", "Open Wildcard Monitor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            // 菜单入口语义固定为“目录内通配符匹配监控”。
+            selectedConfig.FileCheckPattern = true;
+
+            string configPath = string.Empty;
+            try
+            {
+                string directoryPath = Path.GetDirectoryName(selectedConfig.FilePath);
+                if (string.IsNullOrEmpty(directoryPath))
+                    configPath = Directory.GetCurrentDirectory();
+                else
+                    configPath = directoryPath;
+            }
+            catch
+            {
+                configPath = string.Empty;
+            }
+
+            TailForm mdiForm = new TailForm();
+            try
+            {
+                mdiForm.LoadConfig(selectedConfig, configPath);
+            }
+            catch (Exception ex)
+            {
+                string reason = BuildExceptionMessage(ex);
+                AppLog.AppendDaily(AppLog.LevelErr, string.Format("打开通配符监控失败: Path={0}, Error={1}", selectedConfig.FilePath, reason));
+                MessageBox.Show(this, "无法打开通配符监控配置：\n\n" + selectedConfig.FilePath + "\n\n" + reason, "Open Wildcard Monitor", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                if (!mdiForm.IsDisposed)
+                    mdiForm.Close();
+                return;
+            }
+
+            if (mdiForm.IsDisposed)
+            {
+                string reason = string.IsNullOrEmpty(mdiForm.LastLoadFailureReason) ? "加载过程中窗口被关闭（未返回详细原因）" : mdiForm.LastLoadFailureReason;
+                AppLog.AppendDaily(AppLog.LevelWarn, string.Format("打开通配符监控未完成: Path={0}, Reason={1}", selectedConfig.FilePath, reason));
+                MessageBox.Show(this, "打开通配符监控未完成：\n\n" + selectedConfig.FilePath + "\n\n" + reason, "Open Wildcard Monitor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            mdiForm.MdiParent = this;
+            mdiForm.Show();
+
+            string mruPath = selectedConfig.FilePath;
+            try
+            {
+                mruPath = Path.GetFullPath(selectedConfig.FilePath);
+            }
+            catch
+            {
+            }
+
+            if (_mruMenu != null)
+                _mruMenu.AddFile(mruPath);
+            if (_storage != null)
+                _storage.AddFile(mruPath);
+        }
+
 
         private void OnMruFile(int number, String filename)
         {
@@ -333,19 +412,7 @@ namespace SnakeTail
 
         public int OpenFileSelection(string[] filenames)
         {
-            if (_defaultTailConfig == null)
-            {
-                TailConfig tailConfig = _storage?.LoadDefaultSession();
-                if (tailConfig != null && tailConfig.TailFiles.Count > 0)
-                {
-                    _defaultTailConfig = tailConfig.TailFiles[0];
-                    _defaultTailConfig.Title = null;
-                }
-                else
-                {
-                    _defaultTailConfig = new TailFileConfig();
-                }
-            }
+            EnsureDefaultTailConfig();
 
             int filesOpened = 0;
             List<string> failedFiles = new List<string>();
@@ -437,6 +504,26 @@ namespace SnakeTail
                 MessageBox.Show(this, summary + "\n\n失败详情：\n\n" + detail, "批量打开结果", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
             return filesOpened;
+        }
+
+        /// <summary>
+        /// 确保默认 Tail 配置已初始化，便于复用打开逻辑。
+        /// </summary>
+        private void EnsureDefaultTailConfig()
+        {
+            if (_defaultTailConfig != null)
+                return;
+
+            TailConfig tailConfig = _storage?.LoadDefaultSession();
+            if (tailConfig != null && tailConfig.TailFiles.Count > 0)
+            {
+                _defaultTailConfig = tailConfig.TailFiles[0];
+                _defaultTailConfig.Title = null;
+            }
+            else
+            {
+                _defaultTailConfig = new TailFileConfig();
+            }
         }
 
         /// <summary>

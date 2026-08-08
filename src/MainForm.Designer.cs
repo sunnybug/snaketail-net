@@ -56,6 +56,7 @@ namespace SnakeTail
             this._mainMenu = new System.Windows.Forms.MenuStrip();
             this.fileToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.openToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.openWildcardMonitorToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.openEventLogToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.closeItemToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.loadSessionToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
@@ -143,6 +144,7 @@ namespace SnakeTail
             //
             this.fileToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.openToolStripMenuItem,
+            this.openWildcardMonitorToolStripMenuItem,
             this.openEventLogToolStripMenuItem,
             this.closeItemToolStripMenuItem,
             this.loadSessionToolStripMenuItem,
@@ -166,10 +168,19 @@ namespace SnakeTail
             this.openToolStripMenuItem.Text = "Open &File...";
             this.openToolStripMenuItem.Click += new System.EventHandler(this.openToolStripMenuItem_Click);
             //
+            // openWildcardMonitorToolStripMenuItem
+            //
+            this.openWildcardMonitorToolStripMenuItem.Name = "openWildcardMonitorToolStripMenuItem";
+            this.openWildcardMonitorToolStripMenuItem.ShortcutKeys = ((System.Windows.Forms.Keys)(((System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.Shift)
+                        | System.Windows.Forms.Keys.O)));
+            this.openWildcardMonitorToolStripMenuItem.Size = new System.Drawing.Size(221, 22);
+            this.openWildcardMonitorToolStripMenuItem.Text = "Open &Wildcard Monitor...";
+            this.openWildcardMonitorToolStripMenuItem.Click += new System.EventHandler(this.openWildcardMonitorToolStripMenuItem_Click);
+            //
             // openEventLogToolStripMenuItem
             //
             this.openEventLogToolStripMenuItem.Name = "openEventLogToolStripMenuItem";
-            this.openEventLogToolStripMenuItem.Size = new System.Drawing.Size(176, 22);
+            this.openEventLogToolStripMenuItem.Size = new System.Drawing.Size(221, 22);
             this.openEventLogToolStripMenuItem.Text = "Open &EventLog...";
             this.openEventLogToolStripMenuItem.Click += new System.EventHandler(this.openEventLogToolStripMenuItem_Click);
             //
@@ -178,35 +189,35 @@ namespace SnakeTail
             this.closeItemToolStripMenuItem.Enabled = false;
             this.closeItemToolStripMenuItem.Name = "closeItemToolStripMenuItem";
             this.closeItemToolStripMenuItem.ShortcutKeys = ((System.Windows.Forms.Keys)((System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.F4)));
-            this.closeItemToolStripMenuItem.Size = new System.Drawing.Size(176, 22);
+            this.closeItemToolStripMenuItem.Size = new System.Drawing.Size(221, 22);
             this.closeItemToolStripMenuItem.Text = "&Close";
             this.closeItemToolStripMenuItem.Click += new System.EventHandler(this.closeItemToolStripMenuItem_Click);
             //
             // loadSessionToolStripMenuItem
             //
             this.loadSessionToolStripMenuItem.Name = "loadSessionToolStripMenuItem";
-            this.loadSessionToolStripMenuItem.Size = new System.Drawing.Size(176, 22);
+            this.loadSessionToolStripMenuItem.Size = new System.Drawing.Size(221, 22);
             this.loadSessionToolStripMenuItem.Text = "&Open Session...";
             this.loadSessionToolStripMenuItem.Click += new System.EventHandler(this.loadSessionToolStripMenuItem_Click);
             //
             // saveSessionToolStripMenuItem
             //
             this.saveSessionToolStripMenuItem.Name = "saveSessionToolStripMenuItem";
-            this.saveSessionToolStripMenuItem.Size = new System.Drawing.Size(176, 22);
+            this.saveSessionToolStripMenuItem.Size = new System.Drawing.Size(221, 22);
             this.saveSessionToolStripMenuItem.Text = "&Save Session...";
             this.saveSessionToolStripMenuItem.Click += new System.EventHandler(this.saveSessionToolStripMenuItem_Click);
             //
             // closeSessionToolStripMenuItem
             //
             this.closeSessionToolStripMenuItem.Name = "closeSessionToolStripMenuItem";
-            this.closeSessionToolStripMenuItem.Size = new System.Drawing.Size(176, 22);
+            this.closeSessionToolStripMenuItem.Size = new System.Drawing.Size(221, 22);
             this.closeSessionToolStripMenuItem.Text = "C&lose Session";
             this.closeSessionToolStripMenuItem.Click += new System.EventHandler(this.closeAllToolStripMenuItem_Click);
             //
             // toolStripSeparator5
             //
             this.toolStripSeparator5.Name = "toolStripSeparator5";
-            this.toolStripSeparator5.Size = new System.Drawing.Size(173, 6);
+            this.toolStripSeparator5.Size = new System.Drawing.Size(218, 6);
             //
             // recentFilesToolStripMenuItem
             //
@@ -215,7 +226,7 @@ namespace SnakeTail
             this.toolStripSeparator6,
             this.clearListToolStripMenuItem});
             this.recentFilesToolStripMenuItem.Name = "recentFilesToolStripMenuItem";
-            this.recentFilesToolStripMenuItem.Size = new System.Drawing.Size(176, 22);
+            this.recentFilesToolStripMenuItem.Size = new System.Drawing.Size(221, 22);
             this.recentFilesToolStripMenuItem.Text = "&Recent Files";
             //
             // recentFile1ToolStripMenuItem
@@ -239,19 +250,19 @@ namespace SnakeTail
             // toolStripSeparator4
             //
             this.toolStripSeparator4.Name = "toolStripSeparator4";
-            this.toolStripSeparator4.Size = new System.Drawing.Size(173, 6);
+            this.toolStripSeparator4.Size = new System.Drawing.Size(218, 6);
             //
             // minimizeToTrayToolStripMenuItem
             //
             this.minimizeToTrayToolStripMenuItem.Name = "minimizeToTrayToolStripMenuItem";
-            this.minimizeToTrayToolStripMenuItem.Size = new System.Drawing.Size(176, 22);
+            this.minimizeToTrayToolStripMenuItem.Size = new System.Drawing.Size(221, 22);
             this.minimizeToTrayToolStripMenuItem.Text = "&Minimize to tray";
             this.minimizeToTrayToolStripMenuItem.Click += new System.EventHandler(this.minimizeToTrayToolStripMenuItem_Click);
             //
             // alwaysOnTopToolStripMenuItem
             //
             this.alwaysOnTopToolStripMenuItem.Name = "alwaysOnTopToolStripMenuItem";
-            this.alwaysOnTopToolStripMenuItem.Size = new System.Drawing.Size(176, 22);
+            this.alwaysOnTopToolStripMenuItem.Size = new System.Drawing.Size(221, 22);
             this.alwaysOnTopToolStripMenuItem.Text = "Al&ways on top";
             this.alwaysOnTopToolStripMenuItem.Click += new System.EventHandler(this.alwaysOnTopToolStripMenuItem_Click);
             //
@@ -259,7 +270,7 @@ namespace SnakeTail
             //
             this.exitToolStripMenuItem.Name = "exitToolStripMenuItem";
             this.exitToolStripMenuItem.ShortcutKeys = ((System.Windows.Forms.Keys)((System.Windows.Forms.Keys.Alt | System.Windows.Forms.Keys.F4)));
-            this.exitToolStripMenuItem.Size = new System.Drawing.Size(176, 22);
+            this.exitToolStripMenuItem.Size = new System.Drawing.Size(221, 22);
             this.exitToolStripMenuItem.Text = "E&xit";
             this.exitToolStripMenuItem.Click += new System.EventHandler(this.exitToolStripMenuItem_Click);
             //
@@ -477,6 +488,7 @@ namespace SnakeTail
         private System.Windows.Forms.TabControl _MDITabControl;
         private System.Windows.Forms.ToolStripMenuItem fileToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem openToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem openWildcardMonitorToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem windowToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem enableTabsToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem cascadeWindowsToolStripMenuItem;

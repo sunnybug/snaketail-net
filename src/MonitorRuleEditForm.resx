@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <!-- Minimal resource file for MVP -->
+  <data name="FormTitle" xml:space="preserve">
+    <value>Edit Monitor Rule</value>
+  </data>
+</root>

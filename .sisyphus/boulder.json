@@ -1,0 +1,47 @@
+{
+  "active_plan": "D:\\xsw\\code_auto_push\\snaketail-net\\.sisyphus\\plans\\wildcard-file-monitor-ui.md",
+  "started_at": "2026-04-07T12:35:38.736Z",
+  "session_ids": [
+    "ses_29825f9c4ffe93JcrutIgDJYoa",
+    "ses_2980dce1bffemh5vM1P9Cge6ia",
+    "ses_29346f461ffe9GMu8c0JBAMs0t",
+    "ses_29322e416ffeOLGi5oq72Dfg7Z"
+  ],
+  "session_origins": {
+    "ses_29825f9c4ffe93JcrutIgDJYoa": "direct",
+    "ses_2980dce1bffemh5vM1P9Cge6ia": "appended",
+    "ses_29346f461ffe9GMu8c0JBAMs0t": "appended",
+    "ses_29322e416ffeOLGi5oq72Dfg7Z": "appended"
+  },
+  "plan_name": "wildcard-file-monitor-ui",
+  "agent": "atlas",
+  "task_sessions": {
+    "todo:1": {
+      "task_key": "todo:1",
+      "task_label": "1",
+      "task_title": "扩展会话模型以持久化监控规则",
+      "session_id": "ses_2980dce1bffemh5vM1P9Cge6ia",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-04-07T12:40:00.463Z"
+    },
+    "todo:2": {
+      "task_key": "todo:2",
+      "task_label": "2",
+      "task_title": "固定规则校验、规范化与组合预览语义",
+      "session_id": "ses_29346f461ffe9GMu8c0JBAMs0t",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-04-08T10:54:10.487Z"
+    },
+    "todo:3": {
+      "task_key": "todo:3",
+      "task_label": "3",
+      "task_title": "新增目录扫描与 watcher 封装层",
+      "session_id": "ses_29322e416ffeOLGi5oq72Dfg7Z",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-04-08T11:33:50.533Z"
+    }
+  }
+}
